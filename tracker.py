@@ -804,53 +804,108 @@ def render_radial(
         render_node_lines(root, "", True, repo_lines)
         rendered_repos.append((repo_name, repo_lines))
 
-    # Radial layout: distribute repos in two columns
-    # Left side and right side, creating a visual "circle" effect
+    # ==========================================================================
+    # Minecraft Circle Layout using x² + y² = r²
+    # ==========================================================================
+    # Place repos on a circle perimeter, with worktrees radiating outward
+    # Terminal chars are ~2x taller than wide, so we use an ellipse
 
-    # Calculate column positions
-    left_x = 0
-    right_x = available_cols - max_content_width - 1
+    # Calculate circle parameters
+    # Radius should leave room for content (max_content_width) on all sides
+    margin = max_content_width + 2
+    rx = (available_cols - margin * 2) // 2  # Horizontal radius
+    ry = (available_rows - 4) // 2           # Vertical radius (smaller due to aspect ratio)
 
-    # First, calculate total heights needed for each column
-    left_repos = [(name, lines) for i, (name, lines) in enumerate(rendered_repos) if i % 2 == 0]
-    right_repos = [(name, lines) for i, (name, lines) in enumerate(rendered_repos) if i % 2 == 1]
+    # Ensure minimum usable radius
+    rx = max(rx, 15)
+    ry = max(ry, 4)
 
-    left_total = sum(len(lines) for _, lines in left_repos) + len(left_repos) - 1
-    right_total = sum(len(lines) for _, lines in right_repos) + len(right_repos) - 1
+    # Calculate max lines per repo based on available space
+    max_lines_per_repo = max(3, available_rows // max(n_repos // 2 + 1, 1))
 
-    # If content exceeds available space, we need to truncate worktree display
-    # Calculate max lines per repo to fit
-    max_lines_per_repo = max(3, available_rows // max(len(rendered_repos) // 2, 1) - 1)
+    # Track used row ranges to avoid overlap
+    # Dict of x_region -> list of (y_start, y_end) tuples
+    used_regions: dict[str, list[tuple[int, int]]] = {"left": [], "right": [], "center": []}
 
-    # Draw left column
-    left_y = 0
-    for repo_name, repo_lines in left_repos:
-        # Truncate if needed
+    def find_non_overlapping_y(region: str, preferred_y: int, height: int) -> int:
+        """Find a y position that doesn't overlap with existing content."""
+        used = used_regions[region]
+        y = preferred_y
+
+        for attempt in range(20):
+            overlap = False
+            for (used_start, used_end) in used:
+                # Check if proposed range overlaps with used range
+                if not (y + height <= used_start or y >= used_end):
+                    overlap = True
+                    # Move past the overlapping region
+                    y = used_end + 1
+                    break
+            if not overlap:
+                break
+
+        return max(0, min(available_rows - height, y))
+
+    # For each repo, calculate position on circle using x² + y² = r²
+    # We use parametric form: x = r*cos(θ), y = r*sin(θ)
+    for i, (repo_name, repo_lines) in enumerate(rendered_repos):
+        # Distribute repos evenly around the circle
+        # Start from top (-π/2) and go clockwise
+        theta = (2 * math.pi * i / n_repos) - (math.pi / 2)
+
+        # Calculate position on ellipse (Minecraft circle formula adapted for ellipse)
+        # x² / rx² + y² / ry² = 1  =>  x = rx*cos(θ), y = ry*sin(θ)
+        circle_x = int(cx + rx * math.cos(theta))
+        circle_y = int(cy + ry * math.sin(theta))
+
+        # Determine content placement direction (radiate outward from center)
+        # Content should appear on the "outside" of the circle
+        dx = math.cos(theta)  # Direction vector x
+        dy = math.sin(theta)  # Direction vector y
+
+        # Truncate first to know actual height
         if len(repo_lines) > max_lines_per_repo:
             truncated = repo_lines[:max_lines_per_repo - 1]
             truncated.append(f"  {Colors.DIM}... +{len(repo_lines) - max_lines_per_repo + 1} more{Colors.RESET}")
             repo_lines = truncated
 
-        for j, line in enumerate(repo_lines):
-            line_y = left_y + j
-            if 0 <= line_y < available_rows:
-                draw_text_raw(left_x, line_y, line)
-        left_y += len(repo_lines) + 1
+        n_lines = len(repo_lines)
 
-    # Draw right column
-    right_y = 0
-    for repo_name, repo_lines in right_repos:
-        # Truncate if needed
-        if len(repo_lines) > max_lines_per_repo:
-            truncated = repo_lines[:max_lines_per_repo - 1]
-            truncated.append(f"  {Colors.DIM}... +{len(repo_lines) - max_lines_per_repo + 1} more{Colors.RESET}")
-            repo_lines = truncated
+        # Calculate content anchor point and region
+        # Move content outward from circle edge based on direction
+        if dx > 0.3:
+            # Right side
+            content_x = available_cols - max_content_width - 1
+            preferred_y = circle_y - n_lines // 2
+            region = "right"
+        elif dx < -0.3:
+            # Left side
+            content_x = 0
+            preferred_y = circle_y - n_lines // 2
+            region = "left"
+        else:
+            # Top or bottom (center column)
+            content_x = cx - max_content_width // 2
+            if dy < 0:
+                preferred_y = 0  # Top
+            else:
+                preferred_y = available_rows - n_lines  # Bottom
+            region = "center"
 
+        # Find non-overlapping y position
+        content_y = find_non_overlapping_y(region, preferred_y, n_lines)
+
+        # Record this region as used
+        used_regions[region].append((content_y, content_y + n_lines))
+
+        # Clamp x to screen bounds
+        content_x = max(0, min(available_cols - max_content_width, content_x))
+
+        # Draw each line of the repo content
         for j, line in enumerate(repo_lines):
-            line_y = right_y + j
+            line_y = content_y + j
             if 0 <= line_y < available_rows:
-                draw_text_raw(right_x, line_y, line)
-        right_y += len(repo_lines) + 1
+                draw_text_raw(content_x, line_y, line)
 
     # Convert buffer to output lines
     output_lines = []
