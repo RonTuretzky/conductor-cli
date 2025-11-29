@@ -1,0 +1,11 @@
+{
+  "stale_minutes": 30,
+  "colorblind": true,
+  "interval_seconds": 2.0,
+  "show_hierarchy": true,
+  "tree_layout": false,
+  "fetch_prs": true,
+  "since": "today",
+  "debug": false,
+  "pr_refresh_minutes": 5
+}
