@@ -930,46 +930,72 @@ def render_radial(
         circle_x = int(cx + rx * cos_t)
         circle_y = int(cy + ry * sin_t)
 
-        # ALWAYS use simple "down" direction - no confusing mirrored connectors
-        direction = "down"
+        # Determine direction based on quadrant - trees branch OUTWARD from circle
+        # Top quadrant: branch up, Bottom: branch down, Left: branch left, Right: branch down (right)
+        if abs(sin_t) > abs(cos_t):
+            # Primarily top or bottom
+            if sin_t < 0:
+                direction = "up"  # Top - branch upward (outward)
+            else:
+                direction = "down"  # Bottom - branch downward (outward)
+        else:
+            # Primarily left or right
+            if cos_t < 0:
+                direction = "left"  # Left - branch leftward (outward)
+            else:
+                direction = "down"  # Right - branch rightward (use down, position outward)
 
-        # Pre-render this repo
+        # Pre-render this repo with directional branching
         repo_lines = []
         repo_display = repo_name[:22] if len(repo_name) > 22 else repo_name
-        repo_lines.append(f"● {Colors.BOLD}{repo_display}{Colors.RESET}")
-        render_node_lines(root, "", True, repo_lines, direction=direction)
+
+        if direction == "up":
+            # For upward trees, repo name comes LAST (at bottom, closest to center)
+            render_node_lines(root, "", True, repo_lines, direction=direction)
+            repo_lines.append(f"● {Colors.BOLD}{repo_display}{Colors.RESET}")
+        elif direction == "left":
+            # For left trees, repo name on right side (closest to center)
+            repo_lines.append(f"{Colors.BOLD}{repo_display}{Colors.RESET} ●")
+            render_node_lines(root, "", True, repo_lines, direction=direction)
+        else:
+            # For down/right trees, repo name comes FIRST (closest to center)
+            repo_lines.append(f"● {Colors.BOLD}{repo_display}{Colors.RESET}")
+            render_node_lines(root, "", True, repo_lines, direction=direction)
 
         # Truncate if needed
         if len(repo_lines) > max_lines_per_repo:
-            truncated = repo_lines[:max_lines_per_repo - 1]
-            truncated.append(f"  {Colors.DIM}... +{len(repo_lines) - max_lines_per_repo + 1} more{Colors.RESET}")
-            repo_lines = truncated
+            if direction == "up":
+                # Keep bottom lines (repo name and closest children)
+                truncated = [f"  {Colors.DIM}... +{len(repo_lines) - max_lines_per_repo + 1} more{Colors.RESET}"]
+                truncated.extend(repo_lines[-(max_lines_per_repo - 1):])
+                repo_lines = truncated
+            else:
+                truncated = repo_lines[:max_lines_per_repo - 1]
+                truncated.append(f"  {Colors.DIM}... +{len(repo_lines) - max_lines_per_repo + 1} more{Colors.RESET}")
+                repo_lines = truncated
 
         n_lines = len(repo_lines)
 
-        # Position content based on which side of circle
-        # Left side (cos < 0): content at left edge
-        # Right side (cos >= 0): content at right edge
-        # Top/bottom: content centered horizontally at circle position
-        if abs(cos_t) > 0.5:
-            # Primarily left or right side
+        # Position content based on quadrant - radiating OUTWARD from circle
+        if abs(sin_t) > abs(cos_t):
+            # Top or bottom quadrant - center horizontally
+            content_x = circle_x - max_content_width // 2
+            if sin_t < 0:
+                # Top - content extends upward from circle point
+                content_y = max(0, circle_y - n_lines + 1)
+            else:
+                # Bottom - content extends downward from circle point
+                content_y = circle_y
+        else:
+            # Left or right quadrant
             if cos_t < 0:
-                # Left side - anchor content to left edge
+                # Left - content extends leftward, anchor at left edge
                 content_x = 1
             else:
-                # Right side - anchor content to right edge
+                # Right - content extends rightward, anchor at right edge
                 content_x = available_cols - max_content_width - 1
             # Y position follows the circle
             content_y = circle_y - n_lines // 2
-        else:
-            # Top or bottom - center horizontally
-            content_x = circle_x - max_content_width // 2
-            if sin_t < 0:
-                # Top - content above circle point
-                content_y = circle_y - n_lines + 1
-            else:
-                # Bottom - content below circle point
-                content_y = circle_y
 
         # Clamp to screen bounds
         content_x = max(0, min(available_cols - max_content_width, content_x))
