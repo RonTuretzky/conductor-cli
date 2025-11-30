@@ -808,10 +808,10 @@ def get_status_icon(status: Optional[SessionStatus]) -> str:
         return f"{Colors.DIM}○{Colors.RESET}"
 
 
-def advance_spinner():
-    """Advance spinner to next frame."""
+def advance_spinner(frames: int = 3):
+    """Advance spinner by multiple frames for faster animation."""
     global _spinner_idx
-    _spinner_idx = (_spinner_idx + 1) % len(SPINNER_FRAMES)
+    _spinner_idx = (_spinner_idx + frames) % len(SPINNER_FRAMES)
 
 
 def format_time_ago(dt: datetime) -> str:
