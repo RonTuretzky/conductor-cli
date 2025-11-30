@@ -405,11 +405,38 @@ class Node3D:
     position: np.ndarray  # [x, y, z]
     color: np.ndarray  # [r, g, b, a]
     size: float
-    status: str  # 'idle', 'working', 'error', 'none'
+    status: str  # 'idle', 'working', 'error', 'compacting', 'none'
     minutes_since_activity: int
     children: list[str] = field(default_factory=list)
     parent: Optional[str] = None
     is_repo: bool = False
+    # Additional info for display
+    pr_number: Optional[int] = None
+    pr_title: Optional[str] = None
+    worktree_name: Optional[str] = None
+    time_str: str = ""  # "5m ago", "now", etc.
+    last_seen_time: Optional[str] = None  # "14:30" format
+    is_compacting: bool = False
+    has_worktree: bool = True  # False for intermediate PR branches
+
+
+def format_time_ago(dt: datetime) -> str:
+    """Format time as 'Xm ago' or 'Xh ago'."""
+    delta = utc_now() - dt
+    minutes = int(delta.total_seconds() / 60)
+
+    if minutes < 1:
+        return "now"
+    elif minutes < 60:
+        return f"{minutes}m ago"
+    else:
+        hours = minutes // 60
+        return f"{hours}h ago"
+
+
+def format_datetime(dt: datetime) -> str:
+    """Format datetime as HH:MM."""
+    return dt.strftime("%H:%M")
 
 
 def calculate_3d_layout(
@@ -435,16 +462,19 @@ def calculate_3d_layout(
     # Place repos in a circle on the XZ plane (Y is up)
     repo_radius = 8.0
 
-    def get_color_for_minutes(minutes: int, status: str) -> np.ndarray:
+    def get_color_for_minutes(minutes: int, status: str, is_compacting: bool = False) -> np.ndarray:
         """Get color based on activity time and status."""
-        if status == 'working':
+        if is_compacting:
+            # Yellow/gold for compacting
+            return np.array([1.0, 0.85, 0.2, 1.0])
+        elif status == 'working':
             # Bright green for working
             return np.array([0.2, 1.0, 0.3, 1.0])
         elif status == 'error':
             # Red for error
             return np.array([1.0, 0.2, 0.2, 1.0])
         elif status == 'idle':
-            # Dimmer color based on time
+            # Color based on time since activity
             if minutes < 5:
                 return np.array([0.3, 0.8, 0.4, 1.0])  # Green
             elif minutes < 15:
@@ -454,8 +484,8 @@ def calculate_3d_layout(
             else:
                 return np.array([0.8, 0.2, 0.2, 1.0])  # Red (stale)
         else:
-            # Default gray for no status
-            return np.array([0.5, 0.5, 0.6, 0.8])
+            # Default gray for no status / intermediate branches
+            return np.array([0.5, 0.5, 0.6, 0.6])
 
     def add_node_recursive(
         tree_node: TreeNode,
@@ -486,25 +516,37 @@ def calculate_3d_layout(
         # Determine status and color
         status = 'none'
         minutes = 0
+        time_str = ""
+        last_seen_time = None
+        is_compacting = False
+        has_worktree = tree_node.click_record is not None
+
         if tree_node.session_status:
             status = tree_node.session_status.status
+            is_compacting = tree_node.session_status.is_compacting
+
         if tree_node.click_record:
             minutes = int((utc_now() - tree_node.click_record.last_seen).total_seconds() / 60)
+            time_str = format_time_ago(tree_node.click_record.last_seen)
+            last_seen_time = format_datetime(tree_node.click_record.last_seen)
             if status == 'none':
                 status = 'idle'
 
-        color = get_color_for_minutes(minutes, status)
+        color = get_color_for_minutes(minutes, status, is_compacting)
 
-        # Size based on activity
-        if tree_node.click_record:
-            size = 0.4 + min(0.4, minutes / 60)  # Grows with time
+        # Size based on activity - working nodes are larger
+        if status == 'working':
+            size = 0.6
+        elif tree_node.click_record:
+            size = 0.45 + min(0.3, minutes / 60)  # Grows with time
         else:
             size = 0.25  # Smaller for branches without worktrees
 
-        # Create label
-        label = tree_node.name[:25] if len(tree_node.name) > 25 else tree_node.name
-        if tree_node.pr_number:
-            label = f"#{tree_node.pr_number}: {label}"
+        # Create label - show PR title if available
+        if tree_node.pr_title:
+            label = tree_node.pr_title[:30] if len(tree_node.pr_title) > 30 else tree_node.pr_title
+        else:
+            label = tree_node.name[:25] if len(tree_node.name) > 25 else tree_node.name
 
         node = Node3D(
             id=node_id,
@@ -516,6 +558,13 @@ def calculate_3d_layout(
             minutes_since_activity=minutes,
             parent=parent_id,
             is_repo=False,
+            pr_number=tree_node.pr_number,
+            pr_title=tree_node.pr_title,
+            worktree_name=tree_node.name if tree_node.click_record else None,
+            time_str=time_str,
+            last_seen_time=last_seen_time,
+            is_compacting=is_compacting,
+            has_worktree=has_worktree,
         )
         nodes.append(node)
 
@@ -622,11 +671,15 @@ class WorktreeVisualization:
         # Visual elements
         self.node_markers = None
         self.edge_lines = None
+        self.time_rings = []  # Time bar rings around nodes
+        self.status_rings = []  # Status indicator rings
         self.labels = []
         self.node_data: list[Node3D] = []
 
         # Animation state
         self.animation_phase = 0.0
+        self.spinner_frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+        self.spinner_idx = 0
 
         # Create status text
         self.status_text = scene.Text(
@@ -725,10 +778,18 @@ class WorktreeVisualization:
         nodes, edges = calculate_3d_layout(trees, self.stale_threshold)
         self.node_data = nodes
 
-        # Clear old labels
+        # Clear old labels and rings
         for label in self.labels:
             label.parent = None
         self.labels.clear()
+
+        for ring in self.time_rings:
+            ring.parent = None
+        self.time_rings.clear()
+
+        for ring in self.status_rings:
+            ring.parent = None
+        self.status_rings.clear()
 
         if not nodes:
             self.status_text.text = "No worktrees visited. Click on workspaces in Conductor."
@@ -791,12 +852,139 @@ class WorktreeVisualization:
                 )
                 self.view.add(self.edge_lines)
 
-        # Create labels for nodes
+        # Create time indicator rings around nodes (like time bars in terminal)
         for node in nodes:
+            if node.is_repo or not node.has_worktree:
+                continue
+
+            # Calculate ring size based on time (like the bar width in terminal)
+            minutes = node.minutes_since_activity
+            if minutes < 5:
+                ring_scale = 0.3 + (minutes / 5) * 0.2
+            elif minutes < 15:
+                ring_scale = 0.5 + ((minutes - 5) / 10) * 0.2
+            elif minutes < self.stale_threshold:
+                ring_scale = 0.7 + ((minutes - 15) / (self.stale_threshold - 15)) * 0.2
+            else:
+                ring_scale = 0.9 + min(0.1, (minutes - self.stale_threshold) / 30)
+
+            ring_scale = min(1.0, ring_scale)
+
+            # Create a ring using a circle of points
+            n_points = 32
+            theta = np.linspace(0, 2 * np.pi, n_points)
+            ring_radius = node.size * (1.5 + ring_scale)
+
+            # Ring in XZ plane around the node
+            ring_points = np.zeros((n_points, 3))
+            ring_points[:, 0] = node.position[0] + ring_radius * np.cos(theta)
+            ring_points[:, 1] = node.position[1]
+            ring_points[:, 2] = node.position[2] + ring_radius * np.sin(theta)
+
+            # Ring color matches node color
+            ring_color = node.color.copy()
+            ring_color[3] = 0.6  # Semi-transparent
+
+            ring = visuals.Line(
+                pos=ring_points,
+                color=ring_color,
+                width=3,
+                connect='strip',
+            )
+            self.view.add(ring)
+            self.time_rings.append(ring)
+
+        # Create status indicator rings for working/error nodes
+        for node in nodes:
+            if node.is_repo:
+                continue
+
+            if node.status == 'working' or node.is_compacting:
+                # Outer pulsing ring for working status
+                n_points = 32
+                theta = np.linspace(0, 2 * np.pi, n_points)
+                ring_radius = node.size * 2.5
+
+                ring_points = np.zeros((n_points, 3))
+                ring_points[:, 0] = node.position[0] + ring_radius * np.cos(theta)
+                ring_points[:, 1] = node.position[1]
+                ring_points[:, 2] = node.position[2] + ring_radius * np.sin(theta)
+
+                if node.is_compacting:
+                    ring_color = np.array([1.0, 0.85, 0.2, 0.8])  # Yellow
+                else:
+                    ring_color = np.array([0.2, 1.0, 0.3, 0.8])  # Green
+
+                ring = visuals.Line(
+                    pos=ring_points,
+                    color=ring_color,
+                    width=4,
+                    connect='strip',
+                )
+                self.view.add(ring)
+                self.status_rings.append((ring, node))
+
+        # Create labels for nodes with full info
+        for node in nodes:
+            if node.is_repo:
+                # Repo label - just the name
+                label_text = node.label
+                label_color = (0.6, 0.8, 1.0, 1.0)  # Light blue
+            else:
+                # Build multi-line label with all info
+                lines = []
+
+                # Status icon prefix
+                if node.is_compacting:
+                    status_icon = "⟳"  # Compacting
+                elif node.status == 'working':
+                    status_icon = "●"  # Working (will pulse)
+                elif node.status == 'error':
+                    status_icon = "✗"  # Error
+                elif node.status == 'idle':
+                    status_icon = "○"  # Idle
+                else:
+                    status_icon = ""
+
+                # PR number and title
+                if node.pr_number:
+                    pr_line = f"#{node.pr_number}"
+                    if node.pr_title:
+                        title = node.pr_title[:25] + "..." if len(node.pr_title) > 25 else node.pr_title
+                        pr_line += f": {title}"
+                    lines.append(pr_line)
+                elif node.label:
+                    lines.append(node.label)
+
+                # Time info (only for worktrees with activity)
+                if node.has_worktree and node.time_str:
+                    time_line = f"{status_icon} {node.time_str}"
+                    if node.last_seen_time:
+                        time_line += f" @ {node.last_seen_time}"
+                    lines.append(time_line)
+                elif not node.has_worktree:
+                    lines.append("(no worktree)")
+
+                label_text = "\n".join(lines)
+
+                # Color based on status
+                if node.is_compacting:
+                    label_color = (1.0, 0.85, 0.2, 1.0)  # Yellow
+                elif node.status == 'working':
+                    label_color = (0.4, 1.0, 0.5, 1.0)  # Bright green
+                elif node.status == 'error':
+                    label_color = (1.0, 0.4, 0.4, 1.0)  # Red
+                elif node.minutes_since_activity >= self.stale_threshold:
+                    label_color = (1.0, 0.5, 0.5, 1.0)  # Red-ish for stale
+                elif not node.has_worktree:
+                    label_color = (0.6, 0.6, 0.7, 0.7)  # Dimmed
+                else:
+                    label_color = (1.0, 1.0, 1.0, 0.95)  # White
+
             label = scene.Text(
-                node.label,
-                color='white',
-                font_size=9 if node.is_repo else 7,
+                label_text,
+                color=label_color,
+                font_size=10 if node.is_repo else 8,
                 bold=node.is_repo,
                 anchor_x='center',
                 anchor_y='bottom',
@@ -804,11 +992,11 @@ class WorktreeVisualization:
             )
             # Position label above node
             label_pos = node.position.copy()
-            label_pos[1] += node.size + 0.3
+            label_pos[1] += node.size + 0.4
             label.transform = STTransform(translate=label_pos)
             self.labels.append(label)
 
-        # Update status
+        # Update status panel with detailed info like terminal version
         session_duration = utc_now() - self.session.started_at
         session_mins = int(session_duration.total_seconds() / 60)
         if session_mins >= 60:
@@ -816,21 +1004,63 @@ class WorktreeVisualization:
         else:
             session_str = f"{session_mins}m"
 
-        working_count = sum(1 for n in nodes if n.status == 'working')
-        idle_count = sum(1 for n in nodes if n.status == 'idle')
+        # Count by status
+        working_nodes = [n for n in nodes if n.status == 'working' and not n.is_repo]
+        idle_nodes = [n for n in nodes if n.status == 'idle' and not n.is_repo]
+        error_nodes = [n for n in nodes if n.status == 'error' and not n.is_repo]
+        compacting_nodes = [n for n in nodes if n.is_compacting and not n.is_repo]
+        stale_nodes = [n for n in nodes if n.minutes_since_activity >= self.stale_threshold and not n.is_repo]
 
-        self.status_text.text = (
-            f"Tracking: {len(self.session.clicks)} worktrees | "
-            f"Working: {working_count} | Idle: {idle_count} | "
-            f"Session: {session_str}\n"
-            f"Controls: Drag to rotate, Scroll to zoom, Shift+Drag to pan"
-        )
+        # Build status lines
+        status_lines = [
+            "━━━ CONDUCTOR WORKTREE TRACKER 3D ━━━",
+            "",
+        ]
+
+        # Status counts with icons
+        status_parts = []
+        if working_nodes:
+            status_parts.append(f"● Working: {len(working_nodes)}")
+        if idle_nodes:
+            status_parts.append(f"○ Idle: {len(idle_nodes)}")
+        if error_nodes:
+            status_parts.append(f"✗ Error: {len(error_nodes)}")
+        if compacting_nodes:
+            status_parts.append(f"⟳ Compacting: {len(compacting_nodes)}")
+
+        if status_parts:
+            status_lines.append(" | ".join(status_parts))
+
+        # List working worktrees
+        if working_nodes:
+            names = [n.pr_title or n.label for n in working_nodes[:3]]
+            if len(names) > 3:
+                names_str = ", ".join(names) + f" +{len(working_nodes) - 3} more"
+            else:
+                names_str = ", ".join(names)
+            status_lines.append(f"  Active: {names_str}")
+
+        # Stale warning
+        if stale_nodes:
+            stale_names = [n.pr_title or n.label for n in stale_nodes[:2]]
+            if len(stale_nodes) > 2:
+                stale_str = ", ".join(stale_names) + f" +{len(stale_nodes) - 2} more"
+            else:
+                stale_str = ", ".join(stale_names)
+            status_lines.append(f"  ⚠ Stale ({self.stale_threshold}m+): {stale_str}")
+
+        status_lines.append("")
+        status_lines.append(f"Tracking: {len(self.session.clicks)} worktrees | Session: {session_str}")
+        status_lines.append("Controls: Drag=Rotate, Scroll=Zoom, Shift+Drag=Pan")
+
+        self.status_text.text = "\n".join(status_lines)
 
         self.canvas.update()
 
     def on_timer(self, event):
         """Timer callback for periodic updates."""
-        self.animation_phase += 0.1
+        self.animation_phase += 0.15
+        self.spinner_idx = (self.spinner_idx + 1) % len(self.spinner_frames)
 
         # Animate working nodes (pulsing)
         if self.node_markers and self.node_data:
@@ -840,11 +1070,11 @@ class WorktreeVisualization:
                 c = node.color.copy()
                 s = node.size * 50
 
-                if node.status == 'working':
-                    # Pulsing effect
-                    pulse = 0.5 + 0.5 * math.sin(self.animation_phase * 3)
+                if node.status == 'working' or node.is_compacting:
+                    # Pulsing effect for working/compacting
+                    pulse = 0.5 + 0.5 * math.sin(self.animation_phase * 4)
                     c[3] = 0.7 + 0.3 * pulse
-                    s = s * (0.9 + 0.2 * pulse)
+                    s = s * (0.85 + 0.3 * pulse)
 
                 colors.append(c)
                 sizes.append(s)
@@ -857,6 +1087,28 @@ class WorktreeVisualization:
                 size=np.array(sizes),
                 symbol='o',
             )
+
+        # Animate status rings (expanding/pulsing)
+        for ring, node in self.status_rings:
+            pulse = 0.5 + 0.5 * math.sin(self.animation_phase * 4)
+
+            # Expand/contract the ring
+            n_points = 32
+            theta = np.linspace(0, 2 * np.pi, n_points)
+            ring_radius = node.size * (2.2 + 0.6 * pulse)
+
+            ring_points = np.zeros((n_points, 3))
+            ring_points[:, 0] = node.position[0] + ring_radius * np.cos(theta)
+            ring_points[:, 1] = node.position[1]
+            ring_points[:, 2] = node.position[2] + ring_radius * np.sin(theta)
+
+            # Update ring color alpha for pulsing
+            if node.is_compacting:
+                ring_color = np.array([1.0, 0.85, 0.2, 0.4 + 0.5 * pulse])
+            else:
+                ring_color = np.array([0.2, 1.0, 0.3, 0.4 + 0.5 * pulse])
+
+            ring.set_data(pos=ring_points, color=ring_color)
 
         # Periodic data refresh
         self._update_visualization()
