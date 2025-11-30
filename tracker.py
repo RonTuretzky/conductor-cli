@@ -931,22 +931,33 @@ def render_radial(
         circle_y = int(cy + ry * sin_t)
 
         # Determine direction based on quadrant - trees branch OUTWARD from circle
-        # Top quadrant: branch up, All others: branch down (cleaner, no confusing mirrored connectors)
-        if abs(sin_t) > abs(cos_t) and sin_t < 0:
-            direction = "up"  # Top - branch upward (outward)
+        if abs(sin_t) > abs(cos_t):
+            # Primarily top or bottom
+            if sin_t < 0:
+                direction = "up"  # Top - branch upward
+            else:
+                direction = "down"  # Bottom - branch downward
         else:
-            direction = "down"  # Left, Right, Bottom - use standard down rendering
+            # Primarily left or right
+            if cos_t < 0:
+                direction = "left"  # Left - branch leftward
+            else:
+                direction = "down"  # Right - branch rightward (down works for right)
 
         # Pre-render this repo with directional branching
         repo_lines = []
-        repo_display = repo_name[:22] if len(repo_name) > 22 else repo_name
+        repo_display = repo_name[:20] if len(repo_name) > 20 else repo_name
 
         if direction == "up":
             # For upward trees, repo name comes LAST (at bottom, closest to center)
             render_node_lines(root, "", True, repo_lines, direction=direction)
             repo_lines.append(f"● {Colors.BOLD}{repo_display}{Colors.RESET}")
+        elif direction == "left":
+            # For left trees, repo name on RIGHT (closest to center), tree extends left
+            repo_lines.append(f"{Colors.BOLD}{repo_display}{Colors.RESET} ●")
+            render_node_lines(root, "", True, repo_lines, direction=direction)
         else:
-            # For down trees, repo name comes FIRST (closest to center)
+            # For down/right trees, repo name comes FIRST (closest to center)
             repo_lines.append(f"● {Colors.BOLD}{repo_display}{Colors.RESET}")
             render_node_lines(root, "", True, repo_lines, direction=direction)
 
@@ -977,11 +988,11 @@ def render_radial(
         else:
             # Left or right quadrant
             if cos_t < 0:
-                # Left - content extends leftward, anchor at left edge
-                content_x = 1
+                # Left - RIGHT edge near circle, content extends leftward
+                content_x = max(1, circle_x - max_content_width)
             else:
-                # Right - content extends rightward, anchor at right edge
-                content_x = available_cols - max_content_width - 1
+                # Right - LEFT edge near circle, content extends rightward
+                content_x = min(circle_x + 2, available_cols - max_content_width - 1)
             # Y position follows the circle
             content_y = circle_y - n_lines // 2
 
@@ -999,7 +1010,13 @@ def render_radial(
         for j, line in enumerate(repo_lines):
             line_y = content_y + j
             if 0 <= line_y < available_rows:
-                draw_text_raw(content_x, line_y, line)
+                if direction == "left":
+                    # Right-align left-direction content
+                    visible_len = get_visible_length(line)
+                    x_offset = max_content_width - visible_len
+                    draw_text_raw(content_x + x_offset, line_y, line)
+                else:
+                    draw_text_raw(content_x, line_y, line)
 
     # Convert buffer to output lines
     output_lines = []
