@@ -1,0 +1,15 @@
+{
+  "stale_minutes": 30,
+  "interval_seconds": 2.0,
+  "show_hierarchy": true,
+  "tree_layout": false,
+  "fetch_prs": true,
+  "since": "today",
+  "debug": false,
+  "pr_refresh_minutes": 5,
+  "show_status": true,
+  "pomodoro_enabled": false,
+  "pomodoro_work_minutes": 25,
+  "pomodoro_break_minutes": 5,
+  "pomodoro_reflections_file": "reflections.md"
+}
