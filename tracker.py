@@ -94,6 +94,10 @@ def get_since_cutoff(since_value) -> datetime:
 # Unicode bar characters (1/8 increments)
 BAR_CHARS = " ▏▎▍▌▋▊▉█"
 
+# Spinner frames for animated indicators
+SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+_spinner_idx = 0
+
 # ANSI color codes
 class Colors:
     RESET = "\033[0m"
@@ -128,6 +132,7 @@ class Workspace:
     remote_url: str
     default_branch: str
     updated_at: datetime
+    root_path: str = ""  # Repo root path for detecting actual git branch
 
 
 @dataclass
@@ -240,7 +245,8 @@ def get_workspaces() -> list[Workspace]:
             w.updated_at,
             r.name as repo_name,
             r.remote_url,
-            r.default_branch
+            r.default_branch,
+            r.root_path
         FROM workspaces w
         JOIN repos r ON w.repository_id = r.id
         WHERE w.state = 'ready'
@@ -262,10 +268,61 @@ def get_workspaces() -> list[Workspace]:
             remote_url=row["remote_url"] or "",
             default_branch=row["default_branch"] or "main",
             updated_at=updated_at,
+            root_path=row["root_path"] or "",
         ))
 
     conn.close()
     return workspaces
+
+
+def get_actual_git_branch(ws: Workspace) -> str:
+    """Get the actual git branch for a workspace by running git command.
+
+    Returns the stored branch if git command fails.
+    """
+    if not ws.root_path:
+        return ws.branch
+
+    worktree_path = Path(ws.root_path) / ".conductor" / ws.name
+    if not worktree_path.exists():
+        return ws.branch
+
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(worktree_path), "branch", "--show-current"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+
+    return ws.branch
+
+
+def detect_actual_branches(workspaces: list[Workspace], show_progress: bool = False) -> None:
+    """Update workspace branches with actual git branches.
+
+    This detects cases where the user switched branches after creating the worktree.
+    Modifies workspaces in-place.
+    """
+    if show_progress and HAS_TQDM:
+        iterator = tqdm(
+            workspaces,
+            desc="  Detecting branches",
+            ncols=60,
+            bar_format="{desc}: {bar} {n_fmt}/{total_fmt}",
+            leave=True,
+        )
+    else:
+        iterator = workspaces
+
+    for ws in iterator:
+        actual_branch = get_actual_git_branch(ws)
+        if actual_branch != ws.branch:
+            ws.branch = actual_branch
 
 
 def get_session_statuses() -> dict[str, SessionStatus]:
@@ -426,38 +483,64 @@ def get_pr_ci_status(owner: str, repo: str, pr_number: int) -> str:
 
 # Cache for CI status: {(owner, repo, pr_number): (status, timestamp)}
 _ci_cache: dict[tuple[str, str, int], tuple[str, float]] = {}
-CI_REFRESH_SECONDS = 30
+
+# Rate-limiting settings to avoid hitting GitHub API limits
+CI_CACHE_PENDING_SECONDS = 120   # Pending PRs - check every 2 min (active CI)
+CI_CACHE_STABLE_SECONDS = 300    # Pass/fail - stable states, check every 5 min
+CI_CACHE_UNKNOWN_SECONDS = 120   # Unknown/empty - check every 2 min
+CI_MAX_REQUESTS_PER_CYCLE = 5    # Max API calls per refresh cycle
+
+
+def get_ci_cache_duration(status: str) -> int:
+    """Get cache duration based on CI status."""
+    if status == "pending":
+        return CI_CACHE_PENDING_SECONDS
+    elif status in ("pass", "fail"):
+        return CI_CACHE_STABLE_SECONDS
+    else:
+        return CI_CACHE_UNKNOWN_SECONDS
 
 
 def get_pr_ci_status_cached(owner: str, repo: str, pr_number: int) -> str:
-    """Get CI status with 30-second caching."""
+    """Get CI status from cache only (no API call)."""
     key = (owner, repo, pr_number)
-    now = time.time()
-
     if key in _ci_cache:
-        status, timestamp = _ci_cache[key]
-        if now - timestamp < CI_REFRESH_SECONDS:
-            return status
+        status, _ = _ci_cache[key]
+        return status
+    return ""
 
-    status = get_pr_ci_status(owner, repo, pr_number)
-    _ci_cache[key] = (status, now)
-    return status
+
+def is_ci_cache_stale(key: tuple[str, str, int]) -> bool:
+    """Check if a cache entry needs refreshing."""
+    if key not in _ci_cache:
+        return True
+    status, timestamp = _ci_cache[key]
+    age = time.time() - timestamp
+    return age > get_ci_cache_duration(status)
 
 
 def get_ci_icon(status: str) -> str:
     """Get visual icon for CI status."""
+    global _spinner_idx
     if status == "pass":
         return f"{Colors.GREEN}✓{Colors.RESET}"
     elif status == "fail":
         return f"{Colors.RED}✗{Colors.RESET}"
     elif status == "pending":
-        return f"{Colors.YELLOW}◔{Colors.RESET}"  # Spinner-like
+        # Animated spinner for active CI
+        spinner = SPINNER_FRAMES[_spinner_idx % len(SPINNER_FRAMES)]
+        return f"{Colors.YELLOW}{spinner}{Colors.RESET}"
     else:
         return ""
 
 
 def refresh_ci_statuses(workspaces: list, prs_by_repo: dict) -> None:
-    """Refresh CI status for all PRs (background cache update)."""
+    """Refresh CI status for PRs with rate limiting.
+
+    - Only refreshes stale cache entries
+    - Prioritizes pending PRs (active CI)
+    - Limited to CI_MAX_REQUESTS_PER_CYCLE API calls per cycle
+    """
     # Build owner/repo lookup from workspaces
     repo_to_owner: dict[str, tuple[str, str]] = {}
     for ws in workspaces:
@@ -465,14 +548,36 @@ def refresh_ci_statuses(workspaces: list, prs_by_repo: dict) -> None:
         if parsed and ws.repo_name not in repo_to_owner:
             repo_to_owner[ws.repo_name] = parsed  # (owner, repo)
 
-    # Fetch CI status for each PR
+    # Collect all PRs that need refreshing, with their keys
+    pending_prs = []  # (owner, repo, pr) - prioritize these
+    other_prs = []    # (owner, repo, pr)
+
     for repo_name, prs in prs_by_repo.items():
         if repo_name not in repo_to_owner:
             continue
         owner, repo = repo_to_owner[repo_name]
         for pr in prs:
-            # This uses the cache, so it's efficient
+            key = (owner, repo, pr.number)
+            # Always update from cache first (no API call)
             pr.ci_status = get_pr_ci_status_cached(owner, repo, pr.number)
+
+            # Check if this entry needs refreshing
+            if is_ci_cache_stale(key):
+                if pr.ci_status == "pending":
+                    pending_prs.append((owner, repo, pr))
+                else:
+                    other_prs.append((owner, repo, pr))
+
+    # Refresh up to CI_MAX_REQUESTS_PER_CYCLE PRs, prioritizing pending
+    to_refresh = pending_prs[:CI_MAX_REQUESTS_PER_CYCLE]
+    remaining_slots = CI_MAX_REQUESTS_PER_CYCLE - len(to_refresh)
+    if remaining_slots > 0:
+        to_refresh.extend(other_prs[:remaining_slots])
+
+    for owner, repo, pr in to_refresh:
+        status = get_pr_ci_status(owner, repo, pr.number)
+        _ci_cache[(owner, repo, pr.number)] = (status, time.time())
+        pr.ci_status = status
 
 
 def get_all_prs(
@@ -673,10 +778,6 @@ def build_hierarchy(
 # ============================================================================
 # Rendering
 # ============================================================================
-
-# Spinner frames for working status animation
-SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-_spinner_idx = 0
 
 
 def get_status_icon(status: Optional[SessionStatus]) -> str:
@@ -1403,6 +1504,10 @@ def main():
         "--pomodoro", action="store_true", default=config["pomodoro_enabled"],
         help="Enable pomodoro timer mode with reflection prompts"
     )
+    parser.add_argument(
+        "--diag", action="store_true",
+        help="Show diagnostic info (terminal size, timing)"
+    )
 
     args = parser.parse_args()
 
@@ -1450,6 +1555,9 @@ def main():
     for ws in initial_workspaces:
         session.last_updated_at[ws.id] = ws.updated_at
     print(f"  {Colors.GREEN}✓{Colors.RESET} Loaded {len(initial_workspaces)} workspaces")
+
+    # Detect actual git branches (Conductor DB may be stale if user switched branches)
+    detect_actual_branches(initial_workspaces, show_progress=HAS_TQDM)
 
     # Step 2: Backfill recent activity using last_user_message_at for accuracy
     cutoff = get_since_cutoff(args.since)
@@ -1532,6 +1640,7 @@ def main():
 
             # Load workspaces and session statuses
             workspaces = get_workspaces()
+            detect_actual_branches(workspaces)  # Get real git branches for PR matching
             session_statuses = get_session_statuses()
 
             # Refresh last_user_message_at for accurate activity timing
@@ -1541,10 +1650,6 @@ def main():
             if not args.no_prs and (utc_now() - last_pr_refresh).total_seconds() > pr_refresh_seconds:
                 prs_by_repo = get_all_prs(workspaces)
                 last_pr_refresh = utc_now()
-
-            # Refresh CI status for all PRs (uses 30-second cache)
-            if not args.no_prs and prs_by_repo:
-                refresh_ci_statuses(workspaces, prs_by_repo)
 
             # Update activity times based on last_user_message_at changes
             for ws_id, msg_time in current_msg_times.items():
@@ -1605,11 +1710,22 @@ def main():
                 )
             print(output)
 
+            # Show diagnostic info if requested
+            if args.diag:
+                import shutil
+                term_cols, term_rows = shutil.get_terminal_size((80, 24))
+                print(f"[DIAG] Terminal: {term_cols}x{term_rows}, repos: {len(trees)}, PRs cached: {len(_ci_cache)}")
+
             # Advance spinner for next frame
             advance_spinner()
 
             if args.once:
                 break
+
+            # Refresh CI status AFTER render (so display appears immediately)
+            # CI icons will update on next render cycle
+            if not args.no_prs and prs_by_repo:
+                refresh_ci_statuses(workspaces, prs_by_repo)
 
             time.sleep(args.interval)
 
