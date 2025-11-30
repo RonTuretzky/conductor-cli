@@ -10,10 +10,13 @@ import argparse
 import json
 import os
 import re
+import select
 import sqlite3
 import subprocess
 import sys
+import termios
 import time
+import tty
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -156,6 +159,8 @@ class Session:
     started_at: datetime = field(default_factory=_utc_now_factory)
     clicks: dict[str, ClickRecord] = field(default_factory=dict)
     last_updated_at: dict[str, datetime] = field(default_factory=dict)
+    hidden_workspaces: set[str] = field(default_factory=set)  # Set of workspace IDs to hide
+    hidden_repos: set[str] = field(default_factory=set)  # Set of repo names to hide
 
 
 @dataclass
@@ -646,12 +651,18 @@ def build_hierarchy(
 
     If include_pr_branches is True, also include branches from PRs that don't
     have worktrees (shown without timers).
+
+    Hidden workspaces (in session.hidden_workspaces) and hidden repos
+    (in session.hidden_repos) are filtered out.
     """
     # Group workspaces by repo - include all workspaces for repos with clicks
+    # but filter out hidden workspaces and hidden repos
     repos_with_clicks = set()
     for ws in workspaces:
-        if ws.id in session.clicks:
-            repos_with_clicks.add(ws.repo_name)
+        if ws.id in session.clicks and ws.id not in session.hidden_workspaces:
+            # Also check if the repo itself is hidden
+            if ws.repo_name not in session.hidden_repos:
+                repos_with_clicks.add(ws.repo_name)
 
     by_repo: dict[str, list[Workspace]] = {}
     for ws in workspaces:
@@ -686,7 +697,8 @@ def build_hierarchy(
 
         for ws in repo_workspaces:
             workspace_by_branch[ws.branch] = ws
-            if ws.id in session.clicks:
+            # Skip hidden workspaces
+            if ws.id in session.clicks and ws.id not in session.hidden_workspaces:
                 click = session.clicks.get(ws.id)
                 pr_info = pr_lookup.get(ws.branch)
                 status = session_statuses.get(ws.id) if session_statuses else None
@@ -921,7 +933,19 @@ def render_tree(
     else:
         session_str = f"{session_mins}m"
 
-    lines.append(f"Tracking: {len(session.clicks)} worktrees | Session: {session_str}")
+    # Count visible vs hidden (workspaces and repos)
+    hidden_ws_count = len(session.hidden_workspaces)
+    hidden_repo_count = len(session.hidden_repos)
+    visible_count = len(session.clicks) - hidden_ws_count
+
+    hidden_parts = []
+    if hidden_ws_count > 0:
+        hidden_parts.append(f"{hidden_ws_count} ws")
+    if hidden_repo_count > 0:
+        hidden_parts.append(f"{hidden_repo_count} repos")
+    hidden_str = f" ({', '.join(hidden_parts)} hidden)" if hidden_parts else ""
+
+    lines.append(f"Tracking: {visible_count} worktrees{hidden_str} | Session: {session_str} | {Colors.DIM}Press ` to hide/show{Colors.RESET}")
 
     return "\n".join(lines)
 
@@ -1370,7 +1394,19 @@ def render_radial(
     else:
         session_str = f"{session_mins}m"
 
-    lines.append(f"Tracking: {len(session.clicks)} worktrees | Session: {session_str}")
+    # Count visible vs hidden (workspaces and repos)
+    hidden_ws_count = len(session.hidden_workspaces)
+    hidden_repo_count = len(session.hidden_repos)
+    visible_count = len(session.clicks) - hidden_ws_count
+
+    hidden_parts = []
+    if hidden_ws_count > 0:
+        hidden_parts.append(f"{hidden_ws_count} ws")
+    if hidden_repo_count > 0:
+        hidden_parts.append(f"{hidden_repo_count} repos")
+    hidden_str = f" ({', '.join(hidden_parts)} hidden)" if hidden_parts else ""
+
+    lines.append(f"Tracking: {visible_count} worktrees{hidden_str} | Session: {session_str} | {Colors.DIM}Press ` to hide/show{Colors.RESET}")
 
     return "\n".join(lines)
 
@@ -1451,6 +1487,249 @@ def show_break_screen(pomodoro: PomodoroState):
     print("Take a break! Stretch, hydrate, look away from the screen.")
     print()
     print(f"{Colors.DIM}Press Enter when ready to resume work...{Colors.RESET}")
+
+
+# ============================================================================
+# Non-blocking Input Handling
+# ============================================================================
+
+class TerminalInput:
+    """Handle non-blocking terminal input for interactive mode."""
+
+    def __init__(self):
+        self.old_settings = None
+        self.enabled = False
+
+    def enable(self):
+        """Enable raw terminal mode for non-blocking input."""
+        if sys.stdin.isatty():
+            try:
+                self.old_settings = termios.tcgetattr(sys.stdin)
+                tty.setcbreak(sys.stdin.fileno())
+                self.enabled = True
+            except termios.error:
+                self.enabled = False
+
+    def disable(self):
+        """Restore terminal to normal mode."""
+        if self.old_settings and sys.stdin.isatty():
+            try:
+                termios.tcsetattr(sys.stdin, termios.TCSADRAIN, self.old_settings)
+            except termios.error:
+                pass
+        self.enabled = False
+
+    def get_key(self) -> Optional[str]:
+        """Get a key if one is available (non-blocking).
+
+        Returns:
+            Single character if a key is pressed, None otherwise.
+        """
+        if not self.enabled or not sys.stdin.isatty():
+            return None
+
+        try:
+            # Check if input is available
+            readable, _, _ = select.select([sys.stdin], [], [], 0)
+            if readable:
+                return sys.stdin.read(1)
+        except (OSError, select.error):
+            pass
+        return None
+
+
+@dataclass
+class HideMenuState:
+    """State for the workspace hide/show menu."""
+    active: bool = False
+    workspace_list: list = field(default_factory=list)  # Cached menu items
+    repo_list: list = field(default_factory=list)  # Cached repo items
+
+
+# Keys a-z for menu selection (26 items max)
+MENU_KEYS = "abcdefghijklmnopqrstuvwxyz"
+
+
+def build_hide_menu(
+    session: Session,
+    prs_by_repo: dict[str, list] = None,
+) -> tuple[list[tuple[str, str, str, str, bool]], list[tuple[str, str, bool]]]:
+    """Build list of workspaces and repos for hide menu.
+
+    Args:
+        session: Current session with clicks.
+        prs_by_repo: PR info by repo for display names.
+
+    Returns:
+        Tuple of (workspace_items, repo_items) where:
+        - workspace_items: List of (key, workspace_id, display_name, repo_name, is_hidden)
+        - repo_items: List of (key, repo_name, is_hidden)
+    """
+    # Build PR lookup for display names: (repo_name, branch) -> PR title
+    pr_titles: dict[tuple[str, str], str] = {}
+    if prs_by_repo:
+        for repo_name, prs in prs_by_repo.items():
+            for pr in prs:
+                pr_titles[(repo_name, pr.head_branch)] = pr.title
+
+    # Build workspace items sorted by name
+    workspace_items = []
+    sorted_clicks = sorted(session.clicks.items(), key=lambda x: x[1].name)
+
+    for i, (ws_id, click) in enumerate(sorted_clicks):
+        if i >= len(MENU_KEYS):
+            break  # Max 26 items
+
+        key = MENU_KEYS[i]
+        is_hidden = ws_id in session.hidden_workspaces
+
+        # Use PR title if available, otherwise workspace name
+        pr_title = pr_titles.get((click.repo_name, click.branch))
+        display_name = pr_title if pr_title else click.name
+        # Truncate long names
+        if len(display_name) > 40:
+            display_name = display_name[:37] + "..."
+
+        workspace_items.append((key, ws_id, display_name, click.repo_name, is_hidden))
+
+    # Build unique repo list
+    repos = sorted(set(click.repo_name for click in session.clicks.values()))
+    repo_items = []
+    # Use uppercase letters for repos (after workspaces use lowercase)
+    repo_keys = MENU_KEYS.upper()
+
+    for i, repo_name in enumerate(repos):
+        if i >= len(repo_keys):
+            break
+        key = repo_keys[i]
+        is_hidden = repo_name in session.hidden_repos
+        repo_items.append((key, repo_name, is_hidden))
+
+    return workspace_items, repo_items
+
+
+def render_hide_menu(
+    session: Session,
+    available_cols: int,
+    prs_by_repo: dict[str, list] = None,
+) -> str:
+    """Render the hide/show workspace menu overlay.
+
+    Args:
+        session: Current session with clicks and hidden_workspaces.
+        available_cols: Terminal width for formatting.
+        prs_by_repo: PR info for display names.
+
+    Returns:
+        Formatted menu string.
+    """
+    lines = []
+    lines.append("")
+    lines.append(f"{Colors.BOLD}━━━ HIDE/SHOW WORKSPACES & REPOS ━━━{Colors.RESET}")
+    lines.append(f"{Colors.DIM}a-z: toggle workspace, A-Z: toggle repo, `: close, 0: show all{Colors.RESET}")
+    lines.append("")
+
+    workspace_items, repo_items = build_hide_menu(session, prs_by_repo)
+
+    # Render repos section first
+    if repo_items:
+        lines.append(f"{Colors.BOLD}Repositories:{Colors.RESET}")
+        for key, repo_name, is_hidden in repo_items:
+            if is_hidden:
+                status = f"{Colors.DIM}[hidden]{Colors.RESET}"
+                name_display = f"{Colors.DIM}{repo_name}{Colors.RESET}"
+            else:
+                status = f"{Colors.GREEN}[visible]{Colors.RESET}"
+                name_display = repo_name
+
+            key_hint = f"{Colors.MAGENTA}{key}{Colors.RESET}"
+            lines.append(f"  {key_hint}  {name_display:<35} {status}")
+        lines.append("")
+
+    # Render workspaces section
+    if workspace_items:
+        lines.append(f"{Colors.BOLD}Workspaces:{Colors.RESET}")
+        for key, ws_id, display_name, repo_name, is_hidden in workspace_items:
+            if is_hidden:
+                status = f"{Colors.DIM}[hidden]{Colors.RESET}"
+                name_display = f"{Colors.DIM}{display_name}{Colors.RESET}"
+            else:
+                status = f"{Colors.GREEN}[visible]{Colors.RESET}"
+                name_display = display_name
+
+            key_hint = f"{Colors.CYAN}{key}{Colors.RESET}"
+            # Show repo name in dim if different workspaces from same repo
+            repo_hint = f" {Colors.DIM}({repo_name[:15]}){Colors.RESET}" if len(repo_items) > 1 else ""
+            lines.append(f"  {key_hint}  {name_display:<35}{repo_hint} {status}")
+    else:
+        lines.append(f"  {Colors.DIM}No workspaces to hide/show{Colors.RESET}")
+
+    lines.append("")
+    hidden_ws_count = len(session.hidden_workspaces)
+    hidden_repo_count = len(session.hidden_repos)
+    if hidden_ws_count > 0 or hidden_repo_count > 0:
+        parts = []
+        if hidden_ws_count > 0:
+            parts.append(f"{hidden_ws_count} workspace(s)")
+        if hidden_repo_count > 0:
+            parts.append(f"{hidden_repo_count} repo(s)")
+        lines.append(f"  {Colors.YELLOW}{', '.join(parts)} hidden{Colors.RESET}")
+    lines.append("━" * min(60, available_cols))
+
+    return "\n".join(lines)
+
+
+def handle_hide_menu_input(
+    key: str,
+    session: Session,
+    menu_state: HideMenuState,
+    prs_by_repo: dict[str, list] = None,
+) -> bool:
+    """Handle keyboard input for hide menu.
+
+    Args:
+        key: The key that was pressed.
+        session: Current session to modify.
+        menu_state: Current menu state.
+        prs_by_repo: PR info for building menu.
+
+    Returns:
+        True if menu should stay open, False to close it.
+    """
+    if key == '`' or key == '\x1b':  # backtick or Escape
+        return False
+
+    if key == '0':
+        # Show all - clear both hidden sets
+        session.hidden_workspaces.clear()
+        session.hidden_repos.clear()
+        return True
+
+    workspace_items, repo_items = build_hide_menu(session, prs_by_repo)
+
+    # Handle lowercase a-z for workspaces
+    if key.islower() and key in MENU_KEYS:
+        for item_key, ws_id, display_name, repo_name, is_hidden in workspace_items:
+            if item_key == key:
+                if is_hidden:
+                    session.hidden_workspaces.discard(ws_id)
+                else:
+                    session.hidden_workspaces.add(ws_id)
+                break
+        return True
+
+    # Handle uppercase A-Z for repos
+    if key.isupper() and key.lower() in MENU_KEYS:
+        for item_key, repo_name, is_hidden in repo_items:
+            if item_key == key:
+                if is_hidden:
+                    session.hidden_repos.discard(repo_name)
+                else:
+                    session.hidden_repos.add(repo_name)
+                break
+        return True
+
+    return True  # Keep menu open for unrecognized keys
 
 
 # ============================================================================
@@ -1617,9 +1896,17 @@ def main():
         session.last_updated_at[ws.id] = ws.updated_at
 
     print()
-    print(f"Press Ctrl+C to exit. Refreshing every {args.interval}s...\n")
+    print(f"Press Ctrl+C to exit. Refreshing every {args.interval}s...")
+    print(f"{Colors.DIM}Press ` (backtick) to hide/show workspaces & repos{Colors.RESET}\n")
+
+    # Initialize terminal input handler and hide menu state
+    term_input = TerminalInput()
+    hide_menu = HideMenuState()
 
     try:
+        # Enable raw input mode for non-blocking keyboard handling
+        term_input.enable()
+
         while True:
             # Handle pomodoro phase transitions
             if pomodoro.enabled and pomodoro.is_phase_complete():
@@ -1710,6 +1997,13 @@ def main():
                 )
             print(output)
 
+            # Show hide menu if active
+            if hide_menu.active:
+                import shutil
+                term_cols, _ = shutil.get_terminal_size((80, 24))
+                menu_output = render_hide_menu(session, term_cols, prs_by_repo)
+                print(menu_output)
+
             # Show diagnostic info if requested
             if args.diag:
                 import shutil
@@ -1727,11 +2021,38 @@ def main():
             if not args.no_prs and prs_by_repo:
                 refresh_ci_statuses(workspaces, prs_by_repo)
 
-            time.sleep(args.interval)
+            # Handle keyboard input - check multiple times during the interval
+            # to be responsive to user input
+            interval_remaining = args.interval
+            check_interval = 0.1  # Check for input every 100ms
+
+            while interval_remaining > 0:
+                key = term_input.get_key()
+                if key:
+                    if hide_menu.active:
+                        # Handle input for hide menu
+                        hide_menu.active = handle_hide_menu_input(key, session, hide_menu, prs_by_repo)
+                        # Immediately redraw after menu interaction
+                        break
+                    else:
+                        # Check for backtick to open hide menu
+                        if key == '`':
+                            hide_menu.active = True
+                            # Immediately redraw to show menu
+                            break
+                        elif key == 'q' or key == 'Q':
+                            # Allow 'q' to quit
+                            raise KeyboardInterrupt
+
+                time.sleep(min(check_interval, interval_remaining))
+                interval_remaining -= check_interval
 
     except KeyboardInterrupt:
         print("\n\nExiting...")
-        sys.exit(0)
+    finally:
+        # Always restore terminal settings
+        term_input.disable()
+    sys.exit(0)
 
 
 if __name__ == "__main__":
