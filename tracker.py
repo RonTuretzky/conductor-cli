@@ -11,6 +11,7 @@ import json
 import os
 import re
 import select
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -872,6 +873,42 @@ def generate_bar(minutes: int, stale_threshold: int) -> tuple[str, str]:
     return bar, color
 
 
+def format_tracking_line(session: Session, session_mins: int) -> str:
+    """Format the tracking status line with visible/hidden counts.
+
+    Args:
+        session: Current session with clicks and hidden sets.
+        session_mins: Session duration in minutes.
+
+    Returns:
+        Formatted status line string.
+    """
+    if session_mins >= 60:
+        session_str = f"{session_mins // 60}h {session_mins % 60}m"
+    else:
+        session_str = f"{session_mins}m"
+
+    # Count visible workspaces - exclude both hidden workspaces AND
+    # workspaces belonging to hidden repos
+    visible_count = sum(
+        1 for ws_id, click in session.clicks.items()
+        if ws_id not in session.hidden_workspaces
+        and click.repo_name not in session.hidden_repos
+    )
+
+    hidden_ws_count = len(session.hidden_workspaces)
+    hidden_repo_count = len(session.hidden_repos)
+
+    hidden_parts = []
+    if hidden_ws_count > 0:
+        hidden_parts.append(f"{hidden_ws_count} ws")
+    if hidden_repo_count > 0:
+        hidden_parts.append(f"{hidden_repo_count} repos")
+    hidden_str = f" ({', '.join(hidden_parts)} hidden)" if hidden_parts else ""
+
+    return f"Tracking: {visible_count} worktrees{hidden_str} | Session: {session_str} | {Colors.DIM}Press ` to hide/show{Colors.RESET}"
+
+
 def render_tree(
     trees: dict[str, TreeNode],
     session: Session,
@@ -928,24 +965,7 @@ def render_tree(
     lines.append("\n" + "━" * 60)
     session_duration = utc_now() - session.started_at
     session_mins = int(session_duration.total_seconds() / 60)
-    if session_mins >= 60:
-        session_str = f"{session_mins // 60}h {session_mins % 60}m"
-    else:
-        session_str = f"{session_mins}m"
-
-    # Count visible vs hidden (workspaces and repos)
-    hidden_ws_count = len(session.hidden_workspaces)
-    hidden_repo_count = len(session.hidden_repos)
-    visible_count = len(session.clicks) - hidden_ws_count
-
-    hidden_parts = []
-    if hidden_ws_count > 0:
-        hidden_parts.append(f"{hidden_ws_count} ws")
-    if hidden_repo_count > 0:
-        hidden_parts.append(f"{hidden_repo_count} repos")
-    hidden_str = f" ({', '.join(hidden_parts)} hidden)" if hidden_parts else ""
-
-    lines.append(f"Tracking: {visible_count} worktrees{hidden_str} | Session: {session_str} | {Colors.DIM}Press ` to hide/show{Colors.RESET}")
+    lines.append(format_tracking_line(session, session_mins))
 
     return "\n".join(lines)
 
@@ -976,7 +996,6 @@ def render_radial(
 ) -> str:
     """Render repos in a circular layout with worktrees radiating outward."""
     import math
-    import shutil
 
     try:
         term_cols, term_rows = shutil.get_terminal_size((80, 24))
@@ -1389,24 +1408,7 @@ def render_radial(
     lines.append("━" * available_cols)
     session_duration = utc_now() - session.started_at
     session_mins = int(session_duration.total_seconds() / 60)
-    if session_mins >= 60:
-        session_str = f"{session_mins // 60}h {session_mins % 60}m"
-    else:
-        session_str = f"{session_mins}m"
-
-    # Count visible vs hidden (workspaces and repos)
-    hidden_ws_count = len(session.hidden_workspaces)
-    hidden_repo_count = len(session.hidden_repos)
-    visible_count = len(session.clicks) - hidden_ws_count
-
-    hidden_parts = []
-    if hidden_ws_count > 0:
-        hidden_parts.append(f"{hidden_ws_count} ws")
-    if hidden_repo_count > 0:
-        hidden_parts.append(f"{hidden_repo_count} repos")
-    hidden_str = f" ({', '.join(hidden_parts)} hidden)" if hidden_parts else ""
-
-    lines.append(f"Tracking: {visible_count} worktrees{hidden_str} | Session: {session_str} | {Colors.DIM}Press ` to hide/show{Colors.RESET}")
+    lines.append(format_tracking_line(session, session_mins))
 
     return "\n".join(lines)
 
@@ -1523,7 +1525,8 @@ class TerminalInput:
         """Get a key if one is available (non-blocking).
 
         Returns:
-            Single character if a key is pressed, None otherwise.
+            Single character if a regular key is pressed, None otherwise.
+            Escape sequences (arrow keys, etc.) are consumed and return None.
         """
         if not self.enabled or not sys.stdin.isatty():
             return None
@@ -1532,7 +1535,25 @@ class TerminalInput:
             # Check if input is available
             readable, _, _ = select.select([sys.stdin], [], [], 0)
             if readable:
-                return sys.stdin.read(1)
+                ch = sys.stdin.read(1)
+                # Handle escape sequences (arrow keys send \x1b[A, \x1b[B, etc.)
+                if ch == '\x1b':
+                    # Check if more characters follow (escape sequence)
+                    # Use a small timeout to distinguish bare Escape from sequences
+                    more_readable, _, _ = select.select([sys.stdin], [], [], 0.05)
+                    if more_readable:
+                        # This is an escape sequence - consume and ignore it
+                        # Read up to 8 more chars to clear the sequence
+                        for _ in range(8):
+                            ready, _, _ = select.select([sys.stdin], [], [], 0)
+                            if ready:
+                                sys.stdin.read(1)
+                            else:
+                                break
+                        return None  # Ignore escape sequences
+                    # Bare escape key - return it
+                    return '\x1b'
+                return ch
         except (OSError, select.error):
             pass
         return None
@@ -1542,8 +1563,6 @@ class TerminalInput:
 class HideMenuState:
     """State for the workspace hide/show menu."""
     active: bool = False
-    workspace_list: list = field(default_factory=list)  # Cached menu items
-    repo_list: list = field(default_factory=list)  # Cached repo items
 
 
 # Keys a-z for menu selection (26 items max)
@@ -1552,7 +1571,7 @@ MENU_KEYS = "abcdefghijklmnopqrstuvwxyz"
 
 def build_hide_menu(
     session: Session,
-    prs_by_repo: dict[str, list] = None,
+    prs_by_repo: Optional[dict[str, list[PRInfo]]] = None,
 ) -> tuple[list[tuple[str, str, str, str, bool]], list[tuple[str, str, bool]]]:
     """Build list of workspaces and repos for hide menu.
 
@@ -1611,7 +1630,7 @@ def build_hide_menu(
 def render_hide_menu(
     session: Session,
     available_cols: int,
-    prs_by_repo: dict[str, list] = None,
+    prs_by_repo: Optional[dict[str, list[PRInfo]]] = None,
 ) -> str:
     """Render the hide/show workspace menu overlay.
 
@@ -1683,7 +1702,7 @@ def handle_hide_menu_input(
     key: str,
     session: Session,
     menu_state: HideMenuState,
-    prs_by_repo: dict[str, list] = None,
+    prs_by_repo: Optional[dict[str, list[PRInfo]]] = None,
 ) -> bool:
     """Handle keyboard input for hide menu.
 
@@ -1999,14 +2018,12 @@ def main():
 
             # Show hide menu if active
             if hide_menu.active:
-                import shutil
                 term_cols, _ = shutil.get_terminal_size((80, 24))
                 menu_output = render_hide_menu(session, term_cols, prs_by_repo)
                 print(menu_output)
 
             # Show diagnostic info if requested
             if args.diag:
-                import shutil
                 term_cols, term_rows = shutil.get_terminal_size((80, 24))
                 print(f"[DIAG] Terminal: {term_cols}x{term_rows}, repos: {len(trees)}, PRs cached: {len(_ci_cache)}")
 
