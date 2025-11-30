@@ -725,7 +725,7 @@ def render_radial(
         """Render node to list of lines.
 
         direction: "down" (normal), "up" (inverted for top of circle),
-                   "left" or "right" (horizontal expansion)
+                   "left" (mirrored connectors for left side)
         """
         if not node.branch:
             # Root node - just render children
@@ -753,6 +753,9 @@ def render_radial(
         # Choose connector based on direction
         if direction == "up":
             connector = "┌" if is_last else "├"
+        elif direction == "left":
+            # Mirrored connectors for left-side expansion
+            connector = "┘" if is_last else "┤"
         else:
             connector = "└" if is_last else "├"
 
@@ -774,15 +777,25 @@ def render_radial(
             status_icon = get_status_icon(node.session_status) if show_status else ""
             status_pre = f"{status_icon} " if status_icon else ""
 
-            line = f"{prefix}{connector} {status_pre}{node_name}{pr_str} {color}{bar}{Colors.RESET} {time_str}{stale_str}"
+            if direction == "left":
+                # Right-align for left expansion: time bar name connector prefix
+                line = f"{time_str} {color}{bar}{Colors.RESET}{stale_str} {status_pre}{node_name}{pr_str} {connector}{prefix}"
+            else:
+                line = f"{prefix}{connector} {status_pre}{node_name}{pr_str} {color}{bar}{Colors.RESET} {time_str}{stale_str}"
             lines_out.append(line)
         elif node.branch:
-            line = f"{prefix}{Colors.DIM}{connector} {node_name}{pr_str}{Colors.RESET}"
+            if direction == "left":
+                line = f"{Colors.DIM}{node_name}{pr_str} {connector}{prefix}{Colors.RESET}"
+            else:
+                line = f"{prefix}{Colors.DIM}{connector} {node_name}{pr_str}{Colors.RESET}"
             lines_out.append(line)
 
-        # For downward trees, render children AFTER (they appear below parent)
+        # For downward/left trees, render children AFTER (they appear below parent)
         if direction != "up":
-            child_prefix = prefix + ("  " if is_last else "│ ")
+            if direction == "left":
+                child_prefix = ("  " if is_last else " │") + prefix
+            else:
+                child_prefix = prefix + ("  " if is_last else "│ ")
             for i, child in enumerate(node.children):
                 render_node_lines(child, child_prefix, i == len(node.children) - 1, lines_out, depth + 1, direction)
 
@@ -792,13 +805,13 @@ def render_radial(
     # Tight ring: repos placed on circle perimeter, content radiates outward
     # Using parametric form: x = r*cos(θ), y = r*sin(θ)
 
-    # TIGHT circle radius - repos form a ring in the middle
+    # Circle radius - repos form a ring, content expands outward
     # Horizontal radius is larger due to terminal char aspect ratio (~2:1)
-    rx = 18  # Horizontal radius (tight)
-    ry = 6   # Vertical radius (tight, adjusted for char aspect ratio)
+    rx = min(available_cols // 4, 25)  # Horizontal radius
+    ry = min(available_rows // 4, 10)  # Vertical radius
 
-    # Calculate max lines per repo
-    max_lines_per_repo = max(3, (available_rows - 4) // (n_repos // 2 + 1))
+    # Calculate max lines per repo - use available space generously
+    max_lines_per_repo = max(8, (available_rows - 6) // max(2, (n_repos + 2) // 4))
 
     # For each repo, calculate position and render with correct direction
     for i, (repo_name, root) in enumerate(repo_list):
@@ -817,7 +830,8 @@ def render_radial(
         # Determine tree direction based on position on circle
         # Top of circle: trees go UP (children above parent)
         # Bottom of circle: trees go DOWN (children below parent)
-        # Left/Right: use vertical trees for simplicity
+        # Left of circle: trees go LEFT (mirrored connectors)
+        # Right of circle: trees go DOWN (normal)
         if abs(dy) > abs(dx):
             # Primarily top or bottom
             if dy < 0:
@@ -825,7 +839,11 @@ def render_radial(
             else:
                 direction = "down"  # Bottom of circle
         else:
-            direction = "down"  # Left/right sides use downward trees
+            # Primarily left or right
+            if dx < 0:
+                direction = "left"  # Left side - mirrored
+            else:
+                direction = "down"  # Right side - normal
 
         # Pre-render this repo with correct direction
         repo_lines = []
@@ -834,6 +852,10 @@ def render_radial(
             # For upward trees, repo name comes LAST (at bottom, closest to center)
             render_node_lines(root, "", True, repo_lines, direction=direction)
             repo_lines.append(f"● {Colors.BOLD}{repo_display}{Colors.RESET}")
+        elif direction == "left":
+            # For left trees, repo name on right (closest to center), content on left
+            repo_lines.append(f"{Colors.BOLD}{repo_display}{Colors.RESET} ●")
+            render_node_lines(root, "", True, repo_lines, direction=direction)
         else:
             # For downward trees, repo name comes FIRST (at top, closest to center)
             repo_lines.append(f"● {Colors.BOLD}{repo_display}{Colors.RESET}")
@@ -939,9 +961,9 @@ def render_radial(
             if ws_id in session.clicks:
                 # Use PR title from tree if available, else fall back to worktree name
                 name = workspace_display_names.get(ws_id, session.clicks[ws_id].name)
-                # Truncate long names for display
-                if len(name) > 25:
-                    name = name[:22] + "..."
+                # Truncate long names for display (no suffix)
+                if len(name) > 28:
+                    name = name[:28]
                 if status.status == "idle":
                     idle_workspaces.append(name)
                 elif status.status == "working":
