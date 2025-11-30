@@ -159,6 +159,7 @@ class PRInfo:
     head_branch: str
     base_branch: str
     title: str = ""
+    ci_status: str = ""  # "pass", "fail", "pending", "skipping", "" (no checks)
 
 
 @dataclass
@@ -385,6 +386,95 @@ def get_open_prs(owner: str, repo: str) -> list[PRInfo]:
         return []
 
 
+def get_pr_ci_status(owner: str, repo: str, pr_number: int) -> str:
+    """Get CI status for a PR using gh pr checks.
+
+    Returns: "pass", "fail", "pending", "skipping", or "" (no checks/error)
+    """
+    try:
+        result = subprocess.run(
+            ["gh", "pr", "checks", str(pr_number), "--repo", f"{owner}/{repo}",
+             "--json", "bucket"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            # Exit code 1 often means no checks
+            return ""
+
+        checks = json.loads(result.stdout)
+        if not checks:
+            return ""
+
+        # Aggregate status: fail > pending > pass
+        has_fail = any(c.get("bucket") == "fail" for c in checks)
+        has_pending = any(c.get("bucket") == "pending" for c in checks)
+        has_pass = any(c.get("bucket") == "pass" for c in checks)
+
+        if has_fail:
+            return "fail"
+        elif has_pending:
+            return "pending"
+        elif has_pass:
+            return "pass"
+        else:
+            return ""
+    except (subprocess.TimeoutExpired, json.JSONDecodeError, FileNotFoundError):
+        return ""
+
+
+# Cache for CI status: {(owner, repo, pr_number): (status, timestamp)}
+_ci_cache: dict[tuple[str, str, int], tuple[str, float]] = {}
+CI_REFRESH_SECONDS = 30
+
+
+def get_pr_ci_status_cached(owner: str, repo: str, pr_number: int) -> str:
+    """Get CI status with 30-second caching."""
+    key = (owner, repo, pr_number)
+    now = time.time()
+
+    if key in _ci_cache:
+        status, timestamp = _ci_cache[key]
+        if now - timestamp < CI_REFRESH_SECONDS:
+            return status
+
+    status = get_pr_ci_status(owner, repo, pr_number)
+    _ci_cache[key] = (status, now)
+    return status
+
+
+def get_ci_icon(status: str) -> str:
+    """Get visual icon for CI status."""
+    if status == "pass":
+        return f"{Colors.GREEN}✓{Colors.RESET}"
+    elif status == "fail":
+        return f"{Colors.RED}✗{Colors.RESET}"
+    elif status == "pending":
+        return f"{Colors.YELLOW}◔{Colors.RESET}"  # Spinner-like
+    else:
+        return ""
+
+
+def refresh_ci_statuses(workspaces: list, prs_by_repo: dict) -> None:
+    """Refresh CI status for all PRs (background cache update)."""
+    # Build owner/repo lookup from workspaces
+    repo_to_owner: dict[str, tuple[str, str]] = {}
+    for ws in workspaces:
+        parsed = parse_github_remote(ws.remote_url)
+        if parsed and ws.repo_name not in repo_to_owner:
+            repo_to_owner[ws.repo_name] = parsed  # (owner, repo)
+
+    # Fetch CI status for each PR
+    for repo_name, prs in prs_by_repo.items():
+        if repo_name not in repo_to_owner:
+            continue
+        owner, repo = repo_to_owner[repo_name]
+        for pr in prs:
+            # This uses the cache, so it's efficient
+            pr.ci_status = get_pr_ci_status_cached(owner, repo, pr.number)
+
+
 def get_all_prs(
     workspaces: list[Workspace],
     show_progress: bool = False,
@@ -436,6 +526,7 @@ class TreeNode:
     children: list["TreeNode"] = field(default_factory=list)
     is_default_branch: bool = False
     session_status: Optional[SessionStatus] = None
+    ci_status: str = ""  # "pass", "fail", "pending", "" (no checks)
 
 
 def build_hierarchy(
@@ -471,10 +562,10 @@ def build_hierarchy(
         default_branch = repo_workspaces[0].default_branch
         prs = prs_by_repo.get(repo_name, [])
 
-        # Build PR lookup: head_branch -> (base_branch, pr_number, title)
-        pr_lookup: dict[str, tuple[str, int, str]] = {}
+        # Build PR lookup: head_branch -> (base_branch, pr_number, title, ci_status)
+        pr_lookup: dict[str, tuple[str, int, str, str]] = {}
         for pr in prs:
-            pr_lookup[pr.head_branch] = (pr.base_branch, pr.number, pr.title)
+            pr_lookup[pr.head_branch] = (pr.base_branch, pr.number, pr.title, pr.ci_status)
 
         if debug and prs:
             print(f"[DEBUG] {repo_name}: {len(prs)} PRs")
@@ -507,6 +598,7 @@ def build_hierarchy(
                     pr_title=pr_info[2] if pr_info else None,
                     click_record=click,
                     session_status=status,
+                    ci_status=pr_info[3] if pr_info else "",
                 )
                 nodes[ws.branch] = node
 
@@ -538,6 +630,7 @@ def build_hierarchy(
                     pr_number=pr_info[1] if pr_info else None,
                     pr_title=pr_info[2] if pr_info else None,
                     click_record=None,  # No timer for branches without worktrees
+                    ci_status=pr_info[3] if pr_info else "",
                 )
                 nodes[branch] = node
 
@@ -818,7 +911,10 @@ def render_radial(
                 render_node_lines(child, "", is_last_child, lines_out, 0, direction)
             return
 
+        ci_icon = get_ci_icon(node.ci_status) if node.ci_status else ""
         pr_str = f" #{node.pr_number}" if node.pr_number else ""
+        if ci_icon:
+            pr_str = f"{pr_str} {ci_icon}" if pr_str else ci_icon
         click = node.click_record
         max_name = name_width - depth * 2
 
@@ -1443,6 +1539,10 @@ def main():
             if not args.no_prs and (utc_now() - last_pr_refresh).total_seconds() > pr_refresh_seconds:
                 prs_by_repo = get_all_prs(workspaces)
                 last_pr_refresh = utc_now()
+
+            # Refresh CI status for all PRs (uses 30-second cache)
+            if not args.no_prs and prs_by_repo:
+                refresh_ci_statuses(workspaces, prs_by_repo)
 
             # Update activity times based on last_user_message_at changes
             for ws_id, msg_time in current_msg_times.items():
