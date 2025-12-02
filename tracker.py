@@ -47,7 +47,11 @@ DEFAULT_CONFIG = {
     "fetch_prs": True,
     "since": "today",  # "today" or number of hours
     "debug": False,
-    "pr_refresh_minutes": 5,
+    "pr_refresh_minutes": 15,
+    "ci_cache_pending_seconds": 300,    # Pending PRs - check every 5 min
+    "ci_cache_stable_seconds": 900,     # Pass/fail - check every 15 min
+    "ci_cache_unknown_seconds": 600,    # Unknown - check every 10 min
+    "ci_max_requests_per_cycle": 2,     # Max API calls per refresh cycle
     "show_status": True,  # Show session status (working/idle) indicators
     "pomodoro_enabled": False,
     "pomodoro_work_minutes": 25,
@@ -491,10 +495,22 @@ def get_pr_ci_status(owner: str, repo: str, pr_number: int) -> str:
 _ci_cache: dict[tuple[str, str, int], tuple[str, float]] = {}
 
 # Rate-limiting settings to avoid hitting GitHub API limits
-CI_CACHE_PENDING_SECONDS = 120   # Pending PRs - check every 2 min (active CI)
-CI_CACHE_STABLE_SECONDS = 300    # Pass/fail - stable states, check every 5 min
-CI_CACHE_UNKNOWN_SECONDS = 120   # Unknown/empty - check every 2 min
-CI_MAX_REQUESTS_PER_CYCLE = 5    # Max API calls per refresh cycle
+# These are defaults that can be overridden in config.json
+CI_CACHE_PENDING_SECONDS = 300   # Pending PRs - check every 5 min
+CI_CACHE_STABLE_SECONDS = 900    # Pass/fail - stable states, check every 15 min
+CI_CACHE_UNKNOWN_SECONDS = 600   # Unknown/empty - check every 10 min
+CI_MAX_REQUESTS_PER_CYCLE = 2    # Max API calls per refresh cycle
+
+
+def apply_ci_cache_config(config: dict) -> None:
+    """Apply CI cache settings from config to module-level variables."""
+    global CI_CACHE_PENDING_SECONDS, CI_CACHE_STABLE_SECONDS
+    global CI_CACHE_UNKNOWN_SECONDS, CI_MAX_REQUESTS_PER_CYCLE
+
+    CI_CACHE_PENDING_SECONDS = config.get("ci_cache_pending_seconds", 300)
+    CI_CACHE_STABLE_SECONDS = config.get("ci_cache_stable_seconds", 900)
+    CI_CACHE_UNKNOWN_SECONDS = config.get("ci_cache_unknown_seconds", 600)
+    CI_MAX_REQUESTS_PER_CYCLE = config.get("ci_max_requests_per_cycle", 2)
 
 
 def get_ci_cache_duration(status: str) -> int:
@@ -1758,6 +1774,9 @@ def handle_hide_menu_input(
 def main():
     # Load configuration from config.json
     config = load_config()
+
+    # Apply CI cache settings from config
+    apply_ci_cache_config(config)
 
     parser = argparse.ArgumentParser(
         description="Track Conductor worktree activity with visual time indicators"
