@@ -459,6 +459,179 @@
             font-size: 16px;
         }
 
+        /* Fit to screen button */
+        .fit-button {
+            position: absolute;
+            top: 20px;
+            right: 305px;
+            z-index: 100;
+            background: rgba(10, 10, 15, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 8px 12px;
+            cursor: pointer;
+            backdrop-filter: blur(10px);
+            color: #e0e0e0;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.3s ease;
+        }
+
+        .fit-button:hover {
+            background: rgba(30, 30, 40, 0.9);
+        }
+
+        .fit-button.active {
+            background: rgba(34, 197, 94, 0.3);
+            border-color: rgba(34, 197, 94, 0.5);
+        }
+
+        .fit-button .icon {
+            font-size: 14px;
+        }
+
+        body.light-mode .fit-button {
+            background: rgba(255, 255, 255, 0.9);
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            color: #333;
+        }
+
+        body.light-mode .fit-button:hover {
+            background: rgba(240, 240, 245, 0.95);
+        }
+
+        body.light-mode .fit-button.active {
+            background: rgba(34, 197, 94, 0.2);
+            border-color: rgba(34, 197, 94, 0.4);
+        }
+
+        /* Lock button */
+        .lock-button {
+            position: absolute;
+            top: 20px;
+            right: 380px;
+            z-index: 100;
+            background: rgba(10, 10, 15, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 8px 12px;
+            cursor: pointer;
+            backdrop-filter: blur(10px);
+            color: #e0e0e0;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.3s ease;
+        }
+
+        .lock-button:hover {
+            background: rgba(30, 30, 40, 0.9);
+        }
+
+        .lock-button.active {
+            background: rgba(239, 68, 68, 0.3);
+            border-color: rgba(239, 68, 68, 0.5);
+        }
+
+        .lock-button .icon {
+            font-size: 14px;
+        }
+
+        body.light-mode .lock-button {
+            background: rgba(255, 255, 255, 0.9);
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            color: #333;
+        }
+
+        body.light-mode .lock-button:hover {
+            background: rgba(240, 240, 245, 0.95);
+        }
+
+        body.light-mode .lock-button.active {
+            background: rgba(239, 68, 68, 0.2);
+            border-color: rgba(239, 68, 68, 0.4);
+        }
+
+        /* Spacing slider control */
+        .spacing-control {
+            position: absolute;
+            bottom: 80px;
+            left: 20px;
+            z-index: 100;
+            background: rgba(10, 10, 15, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 12px 16px;
+            backdrop-filter: blur(10px);
+            min-width: 180px;
+        }
+
+        .spacing-control label {
+            display: block;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #888;
+            margin-bottom: 8px;
+        }
+
+        .spacing-control input[type="range"] {
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: rgba(255, 255, 255, 0.1);
+            outline: none;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+
+        .spacing-control input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #6366f1;
+            cursor: pointer;
+            border: 2px solid #fff;
+        }
+
+        .spacing-control input[type="range"]::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #6366f1;
+            cursor: pointer;
+            border: 2px solid #fff;
+        }
+
+        .spacing-value {
+            font-size: 12px;
+            color: #e0e0e0;
+            text-align: right;
+            margin-top: 4px;
+        }
+
+        body.light-mode .spacing-control {
+            background: rgba(255, 255, 255, 0.9);
+            border: 1px solid rgba(0, 0, 0, 0.1);
+        }
+
+        body.light-mode .spacing-control label {
+            color: #666;
+        }
+
+        body.light-mode .spacing-control input[type="range"] {
+            background: rgba(0, 0, 0, 0.1);
+        }
+
+        body.light-mode .spacing-value {
+            color: #333;
+        }
+
         /* Light mode styles */
         body.light-mode {
             background: #f5f5f7;
@@ -582,6 +755,16 @@
             <div class="subtitle">3D Visualization</div>
         </div>
 
+        <button class="lock-button" id="lock-button" onclick="toggleLock()">
+            <span class="icon" id="lock-icon">🔓</span>
+            <span id="lock-label">Lock</span>
+        </button>
+
+        <button class="fit-button" id="fit-button" onclick="toggleAutoFit()">
+            <span class="icon">⊡</span>
+            <span id="fit-label">Fit</span>
+        </button>
+
         <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()">
             <span class="icon" id="theme-icon">&#9790;</span>
             <span id="theme-label">Light</span>
@@ -649,6 +832,23 @@
                     <span>Stale</span>
                 </div>
             </div>
+            <div class="legend-section">
+                <h4>Session Status</h4>
+                <div class="legend-item">
+                    <div class="status-icon status-working"></div>
+                    <span>Working (model shown)</span>
+                </div>
+                <div class="legend-item">
+                    <span style="font-size: 16px;">⏳</span>
+                    <span>Awaiting input</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="spacing-control">
+            <label>Repo Spacing</label>
+            <input type="range" id="spacing-slider" min="0.5" max="15" step="0.25" value="6" oninput="updateRepoSpacing(this.value)">
+            <div class="spacing-value"><span id="spacing-value">6</span></div>
         </div>
 
         <div id="footer">
@@ -688,7 +888,7 @@
         </div>
 
         <div class="controls-hint">
-            Drag to rotate | Shift+drag to pan | Scroll to zoom | Hover for details | Click to open | T for theme
+            Drag to rotate | Shift+drag to pan | Scroll to zoom | Hover for details | Click to open | T theme | F fit | L lock
         </div>
     </div>
 
@@ -812,6 +1012,12 @@
         lines: [],         // Connection lines
         repoGroups: new Map(), // Map of repo_name -> group
         useDemo: false,    // Whether using demo data
+        previousStatuses: new Map(),  // Track previous session statuses for transition detection
+        flashingNodes: new Map(),     // Map of workspace_id -> { startTime, mesh }
+        autoFit: false,               // Whether to continuously fit content to screen
+        fitZoom: 1.0,                 // Zoom multiplier for fit mode (smaller = closer)
+        repoSpacing: 6,               // Radius of the circle for repo positioning
+        locked: false,                // Whether scene updates are paused
     };
 
     // ============================================================================
@@ -831,6 +1037,138 @@
 
     function getThemeColors() {
         return isDarkMode ? CONFIG.scene.dark : CONFIG.scene.light;
+    }
+
+    // ============================================================================
+    // Fit to Screen
+    // ============================================================================
+    function toggleAutoFit() {
+        state.autoFit = !state.autoFit;
+        const button = document.getElementById('fit-button');
+        const label = document.getElementById('fit-label');
+
+        if (state.autoFit) {
+            button.classList.add('active');
+            label.textContent = 'Auto';
+            // Reset zoom to default and immediately fit to screen
+            state.fitZoom = 1.0;
+            fitToScreen();
+        } else {
+            button.classList.remove('active');
+            label.textContent = 'Fit';
+        }
+    }
+
+    function updateRepoSpacing(value) {
+        state.repoSpacing = parseFloat(value);
+        document.getElementById('spacing-value').textContent = value;
+        // Rebuild the scene with new spacing
+        rebuildScene();
+    }
+
+    function toggleLock() {
+        state.locked = !state.locked;
+        const button = document.getElementById('lock-button');
+        const icon = document.getElementById('lock-icon');
+        const label = document.getElementById('lock-label');
+
+        if (state.locked) {
+            button.classList.add('active');
+            icon.textContent = '🔒';
+            label.textContent = 'Locked';
+        } else {
+            button.classList.remove('active');
+            icon.textContent = '🔓';
+            label.textContent = 'Lock';
+            // Rebuild scene with latest data when unlocking
+            if (state.trackerData) {
+                buildScene();
+                updateStatusPanel();
+                updateFooter();
+            }
+        }
+    }
+
+    function fitToScreen() {
+        // Calculate bounding box of all visible content
+        const bounds = {
+            minX: Infinity, maxX: -Infinity,
+            minY: Infinity, maxY: -Infinity,
+            minZ: Infinity, maxZ: -Infinity
+        };
+
+        let hasContent = false;
+
+        // Include all workspace nodes
+        state.nodes.forEach((mesh) => {
+            const pos = new THREE.Vector3();
+            mesh.getWorldPosition(pos);
+            bounds.minX = Math.min(bounds.minX, pos.x);
+            bounds.maxX = Math.max(bounds.maxX, pos.x);
+            bounds.minY = Math.min(bounds.minY, pos.y);
+            bounds.maxY = Math.max(bounds.maxY, pos.y);
+            bounds.minZ = Math.min(bounds.minZ, pos.z);
+            bounds.maxZ = Math.max(bounds.maxZ, pos.z);
+            hasContent = true;
+        });
+
+        // Include repo center balls
+        state.repoGroups.forEach((group) => {
+            group.children.forEach((child) => {
+                if (child.userData && child.userData.type === 'repo') {
+                    const pos = new THREE.Vector3();
+                    child.getWorldPosition(pos);
+                    bounds.minX = Math.min(bounds.minX, pos.x);
+                    bounds.maxX = Math.max(bounds.maxX, pos.x);
+                    bounds.minY = Math.min(bounds.minY, pos.y);
+                    bounds.maxY = Math.max(bounds.maxY, pos.y);
+                    bounds.minZ = Math.min(bounds.minZ, pos.z);
+                    bounds.maxZ = Math.max(bounds.maxZ, pos.z);
+                    hasContent = true;
+                }
+            });
+        });
+
+        if (!hasContent) return;
+
+        // Calculate center and size
+        const centerX = (bounds.minX + bounds.maxX) / 2;
+        const centerZ = (bounds.minZ + bounds.maxZ) / 2;
+        const sizeX = bounds.maxX - bounds.minX;
+        const sizeZ = bounds.maxZ - bounds.minZ;
+        const maxSize = Math.max(sizeX, sizeZ, 4);  // Minimum size of 4
+
+        // Calculate required camera height for bird's eye (aerial) view
+        const fov = camera.fov * (Math.PI / 180);
+        const aspect = camera.aspect;
+
+        // For bird's eye view, height needed to see the full spread from above
+        const padding = 2.0;  // Extra padding for labels below balls
+        const heightForZ = (maxSize * padding) / (2 * Math.tan(fov / 2));  // For Z spread (vertical in view)
+        const heightForX = (maxSize * padding) / (2 * Math.tan(fov / 2) * aspect);  // For X spread (horizontal)
+        const baseHeight = Math.max(heightForZ, heightForX, 15);
+
+        // Apply zoom multiplier (smaller fitZoom = closer to content)
+        const targetHeight = baseHeight * state.fitZoom;
+
+        // Smoothly interpolate camera position
+        const lerpFactor = 0.08;  // Smooth transition
+
+        // Move camera target to center of content
+        cameraTargetX += (centerX - cameraTargetX) * lerpFactor;
+        cameraTargetZ += (centerZ - cameraTargetZ) * lerpFactor;
+
+        // For bird's eye view: set radius to near zero (camera directly above target)
+        cameraRadius += (0.01 - cameraRadius) * lerpFactor;
+
+        // Set camera height to see everything from above
+        cameraHeight += (targetHeight - cameraHeight) * lerpFactor;
+
+        // Clamp values
+        cameraRadius = Math.max(0.01, Math.min(40, cameraRadius));
+        cameraHeight = Math.max(5, Math.min(80, cameraHeight));
+
+        updateCameraPosition();
     }
 
     function initThree() {
@@ -1034,9 +1372,15 @@
     }
 
     function onWheel(event) {
-        cameraRadius += event.deltaY * 0.01;
-        cameraRadius = Math.max(5, Math.min(30, cameraRadius));
-        updateCameraPosition();
+        if (state.autoFit) {
+            // In fit mode, adjust zoom multiplier (smaller = closer)
+            state.fitZoom += event.deltaY * 0.002;
+            state.fitZoom = Math.max(0.3, Math.min(3.0, state.fitZoom));
+        } else {
+            cameraRadius += event.deltaY * 0.01;
+            cameraRadius = Math.max(5, Math.min(30, cameraRadius));
+            updateCameraPosition();
+        }
     }
 
     function onKeyDown(event) {
@@ -1049,6 +1393,12 @@
         } else if (event.key === 't' || event.key === 'T') {
             // Toggle theme with 't' key
             toggleTheme();
+        } else if (event.key === 'f' || event.key === 'F') {
+            // Toggle auto-fit with 'f' key
+            toggleAutoFit();
+        } else if (event.key === 'l' || event.key === 'L') {
+            // Toggle lock with 'l' key
+            toggleLock();
         } else if (event.key === '0' && state.hideMenuOpen) {
             state.hiddenWorkspaces.clear();
             state.hiddenRepos.clear();
@@ -1132,13 +1482,13 @@
             } else if (numRepos === 2) {
                 // Two repos - opposite each other
                 angle = repoIndex * Math.PI;  // 0 or PI (180 degrees)
-                repoX = Math.cos(angle) * 6;
-                repoZ = Math.sin(angle) * 6;
+                repoX = Math.cos(angle) * state.repoSpacing;
+                repoZ = Math.sin(angle) * state.repoSpacing;
             } else {
                 // 3+ repos - evenly distributed around the circle
                 angle = (repoIndex / numRepos) * Math.PI * 2 - Math.PI / 2;
-                repoX = Math.cos(angle) * 6;
-                repoZ = Math.sin(angle) * 6;
+                repoX = Math.cos(angle) * state.repoSpacing;
+                repoZ = Math.sin(angle) * state.repoSpacing;
             }
 
             // Create repo group
@@ -1380,6 +1730,42 @@
         return scores;
     }
 
+    function createAwaitingIcon() {
+        // Create a small sprite with an hourglass/waiting icon
+        const canvas = document.createElement('canvas');
+        canvas.width = 64;
+        canvas.height = 64;
+        const ctx = canvas.getContext('2d');
+
+        // Draw circular background
+        ctx.fillStyle = 'rgba(100, 100, 120, 0.9)';
+        ctx.beginPath();
+        ctx.arc(32, 32, 28, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Draw hourglass icon
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 32px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('⏳', 32, 32);
+
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.needsUpdate = true;
+
+        const material = new THREE.SpriteMaterial({
+            map: texture,
+            transparent: true,
+            depthTest: false,
+            depthWrite: false
+        });
+
+        const sprite = new THREE.Sprite(material);
+        sprite.scale.set(0.25, 0.25, 1);  // Small icon size
+
+        return sprite;
+    }
+
     function createWorkspaceNode(node, githubUrl) {
         const click = node.click_record;
         const status = node.session_status;
@@ -1425,6 +1811,12 @@
             modelLabel.position.set(0.5, 0.2, 0);
             modelLabel.scale.set(0.5, 0.25, 1);
             mesh.add(modelLabel);
+        } else if (!status || status.status !== 'working') {
+            // Add awaiting icon for non-working sessions
+            const awaitingIcon = createAwaitingIcon();
+            awaitingIcon.position.set(0, 0, 0.35);  // Positioned in front of the ball
+            awaitingIcon.userData.isAwaitingIcon = true;
+            mesh.add(awaitingIcon);
         }
 
         // CI status will be shown in the PR label above the ball
@@ -1605,9 +1997,21 @@
 
         spinnerRotation += 0.1;
 
+        // Auto-fit camera to content if enabled
+        if (state.autoFit) {
+            fitToScreen();
+        }
+
         // Calculate zoom scale factor - labels get bigger as camera zooms out
-        // At cameraRadius 15 (default), scale = 1. At 30, scale = 1.5. At 5, scale = 0.7
-        const zoomScale = Math.max(0.5, Math.min(2, cameraRadius / 15));
+        // In fit mode, keep labels at constant size regardless of zoom
+        let zoomScale;
+        if (state.autoFit) {
+            // Fixed scale in fit mode - labels stay same size
+            zoomScale = 1.0;
+        } else {
+            // At cameraRadius 15 (default), scale = 1. At 30, scale = 1.5. At 5, scale = 0.7
+            zoomScale = Math.max(0.5, Math.min(2, cameraRadius / 15));
+        }
 
         // Update all label scales based on zoom
         function updateLabelScales(object) {
@@ -1641,6 +2045,50 @@
                     child.rotation.z = spinnerRotation;
                 }
             });
+        });
+
+        // Animate flash effects for workspaces that just finished working
+        const now = Date.now();
+        state.flashingNodes.forEach((flashInfo, wsId) => {
+            const elapsed = now - flashInfo.startTime;
+            const progress = elapsed / flashInfo.duration;
+
+            if (progress >= 1) {
+                // Animation complete, remove from flashing set
+                state.flashingNodes.delete(wsId);
+                // Reset mesh to normal
+                const mesh = state.nodes.get(wsId);
+                if (mesh) {
+                    mesh.scale.set(1, 1, 1);
+                    if (mesh.material) {
+                        mesh.material.emissiveIntensity = 0.5;
+                    }
+                }
+            } else {
+                // Animate the flash - pulse scale and emissive
+                const mesh = state.nodes.get(wsId);
+                if (mesh) {
+                    // Create a pulsing effect: scale up then down
+                    // Use sine wave for smooth pulse, 3 pulses over the duration
+                    const pulsePhase = progress * Math.PI * 6;  // 3 full pulses
+                    const pulseAmount = Math.sin(pulsePhase) * 0.3 * (1 - progress);  // Fade out
+                    const scale = 1 + pulseAmount;
+                    mesh.scale.set(scale, scale, scale);
+
+                    // Flash the emissive white/bright
+                    if (mesh.material) {
+                        const flashIntensity = 0.5 + Math.abs(Math.sin(pulsePhase)) * 1.5 * (1 - progress);
+                        mesh.material.emissiveIntensity = flashIntensity;
+                        // Briefly flash to white during peaks
+                        const whiteness = Math.max(0, Math.sin(pulsePhase)) * (1 - progress);
+                        if (whiteness > 0.3) {
+                            mesh.material.emissive.setHex(0xffffff);
+                        } else {
+                            mesh.material.emissive.setHex(mesh.material.color.getHex());
+                        }
+                    }
+                }
+            }
         });
 
         // Raycasting for hover - check commits first, then workspace nodes
@@ -1942,6 +2390,36 @@
     }
 
     // ============================================================================
+    // Status Transition Detection
+    // ============================================================================
+    function detectStatusTransitions(newData) {
+        if (!newData || !newData.session_statuses) return;
+
+        const newStatuses = newData.session_statuses;
+
+        // Check each workspace for working -> non-working transition
+        for (const [wsId, newStatus] of Object.entries(newStatuses)) {
+            const prevStatus = state.previousStatuses.get(wsId);
+            const wasWorking = prevStatus && prevStatus.status === 'working';
+            const isNowNotWorking = newStatus.status !== 'working';
+
+            if (wasWorking && isNowNotWorking) {
+                // Trigger flash animation for this workspace
+                state.flashingNodes.set(wsId, {
+                    startTime: Date.now(),
+                    duration: 1500,  // 1.5 second flash animation
+                });
+            }
+        }
+
+        // Update previous statuses for next comparison
+        state.previousStatuses.clear();
+        for (const [wsId, status] of Object.entries(newStatuses)) {
+            state.previousStatuses.set(wsId, { ...status });
+        }
+    }
+
+    // ============================================================================
     // Data Fetching
     // ============================================================================
     async function fetchData() {
@@ -1956,15 +2434,24 @@
             if (!response.ok) throw new Error('API error');
 
             const data = await response.json();
+
+            // Detect working -> non-working transitions before updating state
+            detectStatusTransitions(data);
+
             state.trackerData = data;
             state.useDemo = false;
 
             document.getElementById('loading').style.display = 'none';
-            document.querySelector('#header .subtitle').textContent = '3D Visualization';
+            document.querySelector('#header .subtitle').textContent = state.locked
+                ? '3D Visualization (Locked)'
+                : '3D Visualization';
 
-            buildScene();
-            updateStatusPanel();
-            updateFooter();
+            // Skip scene rebuild if locked
+            if (!state.locked) {
+                buildScene();
+                updateStatusPanel();
+                updateFooter();
+            }
 
         } catch (error) {
             console.log('API not available, using demo data');
@@ -1973,10 +2460,14 @@
                 state.trackerData = generateDemoData();
                 state.useDemo = true;
                 document.getElementById('loading').style.display = 'none';
-                document.querySelector('#header .subtitle').textContent = '3D Visualization (Demo Mode)';
-                buildScene();
-                updateStatusPanel();
-                updateFooter();
+                document.querySelector('#header .subtitle').textContent = state.locked
+                    ? '3D Visualization (Demo Mode - Locked)'
+                    : '3D Visualization (Demo Mode)';
+                if (!state.locked) {
+                    buildScene();
+                    updateStatusPanel();
+                    updateFooter();
+                }
             }
         }
     }
