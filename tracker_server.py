@@ -154,45 +154,47 @@ def get_workspaces() -> list[Workspace]:
         return []
 
     conn = sqlite3.connect(f"file:{CONDUCTOR_DB}?mode=ro", uri=True)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
+    try:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
 
-    cursor.execute("""
-        SELECT
-            w.id,
-            w.directory_name,
-            w.branch,
-            w.parent_branch,
-            w.repository_id,
-            w.updated_at,
-            r.name as repo_name,
-            r.remote_url,
-            r.default_branch,
-            r.root_path
-        FROM workspaces w
-        JOIN repos r ON w.repository_id = r.id
-        WHERE w.state = 'ready'
-        ORDER BY w.updated_at DESC
-    """)
+        cursor.execute("""
+            SELECT
+                w.id,
+                w.directory_name,
+                w.branch,
+                w.parent_branch,
+                w.repository_id,
+                w.updated_at,
+                r.name as repo_name,
+                r.remote_url,
+                r.default_branch,
+                r.root_path
+            FROM workspaces w
+            JOIN repos r ON w.repository_id = r.id
+            WHERE w.state = 'ready'
+            ORDER BY w.updated_at DESC
+        """)
 
-    workspaces = []
-    for row in cursor.fetchall():
-        updated_at = datetime.fromisoformat(row["updated_at"].replace("Z", ""))
-        workspaces.append(Workspace(
-            id=row["id"],
-            name=row["directory_name"],
-            branch=row["branch"],
-            parent_branch=row["parent_branch"],
-            repo_id=row["repository_id"],
-            repo_name=row["repo_name"],
-            remote_url=row["remote_url"] or "",
-            default_branch=row["default_branch"] or "main",
-            updated_at=updated_at,
-            root_path=row["root_path"] or "",
-        ))
+        workspaces = []
+        for row in cursor.fetchall():
+            updated_at = datetime.fromisoformat(row["updated_at"].replace("Z", ""))
+            workspaces.append(Workspace(
+                id=row["id"],
+                name=row["directory_name"],
+                branch=row["branch"],
+                parent_branch=row["parent_branch"],
+                repo_id=row["repository_id"],
+                repo_name=row["repo_name"],
+                remote_url=row["remote_url"] or "",
+                default_branch=row["default_branch"] or "main",
+                updated_at=updated_at,
+                root_path=row["root_path"] or "",
+            ))
 
-    conn.close()
-    return workspaces
+        return workspaces
+    finally:
+        conn.close()
 
 
 def get_actual_git_branch(ws: Workspace) -> str:
@@ -325,34 +327,36 @@ def get_session_statuses() -> dict[str, SessionStatus]:
         return {}
 
     conn = sqlite3.connect(f"file:{CONDUCTOR_DB}?mode=ro", uri=True)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
+    try:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
 
-    cursor.execute("""
-        SELECT
-            s.workspace_id,
-            s.status,
-            s.model,
-            s.is_compacting
-        FROM sessions s
-        WHERE s.workspace_id IS NOT NULL
-          AND s.is_hidden = 0
-        ORDER BY s.updated_at DESC
-    """)
+        cursor.execute("""
+            SELECT
+                s.workspace_id,
+                s.status,
+                s.model,
+                s.is_compacting
+            FROM sessions s
+            WHERE s.workspace_id IS NOT NULL
+              AND s.is_hidden = 0
+            ORDER BY s.updated_at DESC
+        """)
 
-    statuses: dict[str, SessionStatus] = {}
-    for row in cursor.fetchall():
-        ws_id = row["workspace_id"]
-        if ws_id not in statuses:
-            statuses[ws_id] = SessionStatus(
-                workspace_id=ws_id,
-                status=row["status"] or "idle",
-                model=row["model"],
-                is_compacting=bool(row["is_compacting"]),
-            )
+        statuses: dict[str, SessionStatus] = {}
+        for row in cursor.fetchall():
+            ws_id = row["workspace_id"]
+            if ws_id not in statuses:
+                statuses[ws_id] = SessionStatus(
+                    workspace_id=ws_id,
+                    status=row["status"] or "idle",
+                    model=row["model"],
+                    is_compacting=bool(row["is_compacting"]),
+                )
 
-    conn.close()
-    return statuses
+        return statuses
+    finally:
+        conn.close()
 
 
 def get_last_user_message_times() -> dict[str, datetime]:
@@ -361,27 +365,29 @@ def get_last_user_message_times() -> dict[str, datetime]:
         return {}
 
     conn = sqlite3.connect(f"file:{CONDUCTOR_DB}?mode=ro", uri=True)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
+    try:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
 
-    cursor.execute("""
-        SELECT s.workspace_id, MAX(s.last_user_message_at) as last_user_message_at
-        FROM sessions s
-        WHERE s.workspace_id IS NOT NULL
-          AND s.is_hidden = 0
-          AND s.last_user_message_at IS NOT NULL
-        GROUP BY s.workspace_id
-    """)
+        cursor.execute("""
+            SELECT s.workspace_id, MAX(s.last_user_message_at) as last_user_message_at
+            FROM sessions s
+            WHERE s.workspace_id IS NOT NULL
+              AND s.is_hidden = 0
+              AND s.last_user_message_at IS NOT NULL
+            GROUP BY s.workspace_id
+        """)
 
-    result: dict[str, datetime] = {}
-    for row in cursor.fetchall():
-        ws_id = row["workspace_id"]
-        timestamp = row["last_user_message_at"]
-        if timestamp:
-            result[ws_id] = datetime.fromisoformat(timestamp.replace("Z", ""))
+        result: dict[str, datetime] = {}
+        for row in cursor.fetchall():
+            ws_id = row["workspace_id"]
+            timestamp = row["last_user_message_at"]
+            if timestamp:
+                result[ws_id] = datetime.fromisoformat(timestamp.replace("Z", ""))
 
-    conn.close()
-    return result
+        return result
+    finally:
+        conn.close()
 
 
 # ============================================================================
@@ -444,7 +450,6 @@ def get_ci_cache_duration(status: str, config: dict) -> int:
 
 def get_pr_ci_status_cached(owner: str, repo: str, pr_number: int, config: dict) -> str:
     """Get CI status with caching to reduce API calls."""
-    import time
     cache_key = (owner, repo, pr_number)
     now = time.time()
 
@@ -913,7 +918,7 @@ class TrackerState:
 class TrackerHandler(http.server.SimpleHTTPRequestHandler):
     """HTTP request handler for tracker API."""
 
-    tracker_state: TrackerState = None
+    tracker_state: Optional[TrackerState] = None
 
     def do_GET(self):
         parsed = urlparse(self.path)

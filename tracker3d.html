@@ -417,10 +417,6 @@
             margin: 0 auto 15px;
         }
 
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-
         .controls-hint {
             position: absolute;
             bottom: 80px;
@@ -2910,27 +2906,34 @@
 
     function generateDemoData() {
         // Demo data for testing without backend
+        // Helper to generate dates relative to today
+        function daysAgo(days) {
+            const date = new Date();
+            date.setDate(date.getDate() - days);
+            return date.toISOString().split('T')[0];
+        }
+
         const demoCommits = [
-            { sha: 'abc1234567890', short_sha: 'abc1234', message: 'Add dark mode toggle component', author: 'developer', date: '2024-12-01', github_url: 'https://github.com/example/conductor-cli/commit/abc1234567890' },
-            { sha: 'def2345678901', short_sha: 'def2345', message: 'Implement theme context provider', author: 'developer', date: '2024-12-01', github_url: 'https://github.com/example/conductor-cli/commit/def2345678901' },
-            { sha: 'ghi3456789012', short_sha: 'ghi3456', message: 'Add CSS variables for dark theme', author: 'developer', date: '2024-11-30', github_url: 'https://github.com/example/conductor-cli/commit/ghi3456789012' },
+            { sha: 'abc1234567890', short_sha: 'abc1234', message: 'Add dark mode toggle component', author: 'developer', date: daysAgo(1), github_url: 'https://github.com/example/conductor-cli/commit/abc1234567890' },
+            { sha: 'def2345678901', short_sha: 'def2345', message: 'Implement theme context provider', author: 'developer', date: daysAgo(1), github_url: 'https://github.com/example/conductor-cli/commit/def2345678901' },
+            { sha: 'ghi3456789012', short_sha: 'ghi3456', message: 'Add CSS variables for dark theme', author: 'developer', date: daysAgo(2), github_url: 'https://github.com/example/conductor-cli/commit/ghi3456789012' },
         ];
 
         const demoCommits2 = [
-            { sha: 'jkl4567890123', short_sha: 'jkl4567', message: 'Fix memory leak in event listener', author: 'developer', date: '2024-12-02', github_url: 'https://github.com/example/conductor-cli/commit/jkl4567890123' },
-            { sha: 'mno5678901234', short_sha: 'mno5678', message: 'Add cleanup on unmount', author: 'developer', date: '2024-12-02', github_url: 'https://github.com/example/conductor-cli/commit/mno5678901234' },
+            { sha: 'jkl4567890123', short_sha: 'jkl4567', message: 'Fix memory leak in event listener', author: 'developer', date: daysAgo(0), github_url: 'https://github.com/example/conductor-cli/commit/jkl4567890123' },
+            { sha: 'mno5678901234', short_sha: 'mno5678', message: 'Add cleanup on unmount', author: 'developer', date: daysAgo(0), github_url: 'https://github.com/example/conductor-cli/commit/mno5678901234' },
         ];
 
         const authCommits = [
-            { sha: 'pqr6789012345', short_sha: 'pqr6789', message: 'Add user authentication routes', author: 'developer', date: '2024-11-28', github_url: 'https://github.com/example/my-app/commit/pqr6789012345' },
-            { sha: 'stu7890123456', short_sha: 'stu7890', message: 'Implement JWT token validation', author: 'developer', date: '2024-11-28', github_url: 'https://github.com/example/my-app/commit/stu7890123456' },
-            { sha: 'vwx8901234567', short_sha: 'vwx8901', message: 'Add password hashing', author: 'developer', date: '2024-11-27', github_url: 'https://github.com/example/my-app/commit/vwx8901234567' },
-            { sha: 'yza9012345678', short_sha: 'yza9012', message: 'Create user model', author: 'developer', date: '2024-11-27', github_url: 'https://github.com/example/my-app/commit/yza9012345678' },
+            { sha: 'pqr6789012345', short_sha: 'pqr6789', message: 'Add user authentication routes', author: 'developer', date: daysAgo(4), github_url: 'https://github.com/example/my-app/commit/pqr6789012345' },
+            { sha: 'stu7890123456', short_sha: 'stu7890', message: 'Implement JWT token validation', author: 'developer', date: daysAgo(4), github_url: 'https://github.com/example/my-app/commit/stu7890123456' },
+            { sha: 'vwx8901234567', short_sha: 'vwx8901', message: 'Add password hashing', author: 'developer', date: daysAgo(5), github_url: 'https://github.com/example/my-app/commit/vwx8901234567' },
+            { sha: 'yza9012345678', short_sha: 'yza9012', message: 'Create user model', author: 'developer', date: daysAgo(5), github_url: 'https://github.com/example/my-app/commit/yza9012345678' },
         ];
 
         const oauthCommits = [
-            { sha: 'bcd0123456789', short_sha: 'bcd0123', message: 'Add OAuth provider config', author: 'developer', date: '2024-11-29', github_url: 'https://github.com/example/my-app/commit/bcd0123456789' },
-            { sha: 'efg1234567890', short_sha: 'efg1234', message: 'Implement Google OAuth flow', author: 'developer', date: '2024-11-29', github_url: 'https://github.com/example/my-app/commit/efg1234567890' },
+            { sha: 'bcd0123456789', short_sha: 'bcd0123', message: 'Add OAuth provider config', author: 'developer', date: daysAgo(3), github_url: 'https://github.com/example/my-app/commit/bcd0123456789' },
+            { sha: 'efg1234567890', short_sha: 'efg1234', message: 'Implement Google OAuth flow', author: 'developer', date: daysAgo(3), github_url: 'https://github.com/example/my-app/commit/efg1234567890' },
         ];
 
         return {
