@@ -555,6 +555,171 @@
             border-color: rgba(239, 68, 68, 0.4);
         }
 
+        /* CI Refresh button */
+        .ci-button {
+            position: absolute;
+            top: 20px;
+            right: 455px;
+            z-index: 100;
+            background: rgba(10, 10, 15, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 8px 12px;
+            cursor: pointer;
+            backdrop-filter: blur(10px);
+            color: #e0e0e0;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.3s ease;
+        }
+
+        .ci-button:hover {
+            background: rgba(30, 30, 40, 0.9);
+        }
+
+        .ci-button.loading {
+            opacity: 0.7;
+            cursor: wait;
+        }
+
+        .ci-button .icon {
+            font-size: 14px;
+            transition: transform 0.3s ease;
+        }
+
+        .ci-button.loading .icon {
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        body.light-mode .ci-button {
+            background: rgba(255, 255, 255, 0.9);
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            color: #333;
+        }
+
+        body.light-mode .ci-button:hover {
+            background: rgba(240, 240, 245, 0.95);
+        }
+
+        /* Colorblind mode button */
+        .colorblind-button {
+            position: absolute;
+            top: 20px;
+            right: 510px;
+            z-index: 100;
+            background: rgba(10, 10, 15, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 8px 12px;
+            cursor: pointer;
+            backdrop-filter: blur(10px);
+            color: #e0e0e0;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.3s ease;
+        }
+
+        .colorblind-button:hover {
+            background: rgba(30, 30, 40, 0.9);
+        }
+
+        .colorblind-button.active {
+            background: rgba(100, 149, 237, 0.3);
+            border-color: rgba(100, 149, 237, 0.5);
+        }
+
+        .colorblind-button .icon {
+            font-size: 14px;
+        }
+
+        body.light-mode .colorblind-button {
+            background: rgba(255, 255, 255, 0.9);
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            color: #333;
+        }
+
+        body.light-mode .colorblind-button:hover {
+            background: rgba(240, 240, 245, 0.95);
+        }
+
+        body.light-mode .colorblind-button.active {
+            background: rgba(100, 149, 237, 0.2);
+            border-color: rgba(100, 149, 237, 0.4);
+        }
+
+        /* Emoji legend for colorblind mode */
+        #emoji-legend {
+            display: none;
+        }
+
+        body.colorblind-mode #emoji-legend {
+            display: block;
+        }
+
+        body.colorblind-mode #legend-panel {
+            display: none;
+        }
+
+        #emoji-legend {
+            position: absolute;
+            bottom: 120px;
+            right: 20px;
+            z-index: 100;
+            background: rgba(10, 10, 15, 0.85);
+            padding: 15px 20px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            min-width: 200px;
+        }
+
+        #emoji-legend h3 {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #888;
+            margin-bottom: 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding-bottom: 8px;
+        }
+
+        .emoji-legend-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 6px;
+            font-size: 13px;
+        }
+
+        .emoji-legend-item .emoji {
+            font-size: 18px;
+            width: 24px;
+            text-align: center;
+        }
+
+        body.light-mode #emoji-legend {
+            background: rgba(255, 255, 255, 0.9);
+            border: 1px solid rgba(0, 0, 0, 0.1);
+        }
+
+        body.light-mode #emoji-legend h3 {
+            color: #666;
+            border-bottom-color: rgba(0, 0, 0, 0.1);
+        }
+
+        body.light-mode .emoji-legend-item {
+            color: #333;
+        }
+
         /* Spacing slider control */
         .spacing-control {
             position: absolute;
@@ -755,6 +920,16 @@
             <div class="subtitle">3D Visualization</div>
         </div>
 
+        <button class="colorblind-button" id="colorblind-button" onclick="toggleColorblind()">
+            <span class="icon" id="colorblind-icon">👁</span>
+            <span id="colorblind-label">A11y</span>
+        </button>
+
+        <button class="ci-button" id="ci-button" onclick="refreshCI()">
+            <span class="icon" id="ci-icon">↻</span>
+            <span id="ci-label">CI</span>
+        </button>
+
         <button class="lock-button" id="lock-button" onclick="toggleLock()">
             <span class="icon" id="lock-icon">🔓</span>
             <span id="lock-label">Lock</span>
@@ -813,8 +988,8 @@
                     <span>CI Pending</span>
                 </div>
                 <div class="legend-item">
-                    <div class="pr-badge pr-none">#123</div>
-                    <span>No CI Status</span>
+                    <div class="pr-badge pr-none">#123 ◌</div>
+                    <span>CI Loading/Unknown</span>
                 </div>
             </div>
             <div class="legend-section">
@@ -840,6 +1015,59 @@
                 </div>
                 <div class="legend-item">
                     <span style="font-size: 16px;">⏳</span>
+                    <span>Awaiting input</span>
+                </div>
+            </div>
+        </div>
+
+        <div id="emoji-legend">
+            <h3>Legend (Colorblind Mode)</h3>
+            <div class="legend-section">
+                <h4>Worktree Freshness</h4>
+                <div class="emoji-legend-item">
+                    <span class="emoji">✨</span>
+                    <span>Fresh (active recently)</span>
+                </div>
+                <div class="emoji-legend-item">
+                    <span class="emoji">⚡</span>
+                    <span>Recent activity</span>
+                </div>
+                <div class="emoji-legend-item">
+                    <span class="emoji">⏰</span>
+                    <span>Getting stale</span>
+                </div>
+                <div class="emoji-legend-item">
+                    <span class="emoji">💤</span>
+                    <span>Stale (inactive)</span>
+                </div>
+            </div>
+            <div class="legend-section">
+                <h4>CI Status</h4>
+                <div class="emoji-legend-item">
+                    <span class="emoji">✓</span>
+                    <span>CI Passing</span>
+                </div>
+                <div class="emoji-legend-item">
+                    <span class="emoji">✗</span>
+                    <span>CI Failing</span>
+                </div>
+                <div class="emoji-legend-item">
+                    <span class="emoji">⋯</span>
+                    <span>CI Pending</span>
+                </div>
+                <div class="emoji-legend-item">
+                    <span class="emoji">◌</span>
+                    <span>CI Unknown</span>
+                </div>
+            </div>
+            <div class="legend-section">
+                <h4>Session Status</h4>
+                <div class="emoji-legend-item">
+                    <span class="emoji">⚙️</span>
+                    <span>Working (model shown)</span>
+                </div>
+                <div class="emoji-legend-item">
+                    <span class="emoji">⏳</span>
                     <span>Awaiting input</span>
                 </div>
             </div>
@@ -888,7 +1116,7 @@
         </div>
 
         <div class="controls-hint">
-            Drag to rotate | Shift+drag to pan | Scroll to zoom | Hover for details | Click to open | T theme | F fit | L lock
+            Drag to rotate | Shift+drag to pan | Scroll to zoom | Hover for details | Click to open | T theme | F fit | L lock | C a11y
         </div>
     </div>
 
@@ -1018,6 +1246,7 @@
         fitZoom: 1.0,                 // Zoom multiplier for fit mode (smaller = closer)
         repoSpacing: 6,               // Radius of the circle for repo positioning
         locked: false,                // Whether scene updates are paused
+        colorblind: false,            // Whether colorblind mode is enabled (emojis instead of colors)
     };
 
     // ============================================================================
@@ -1087,6 +1316,92 @@
                 updateFooter();
             }
         }
+    }
+
+    async function refreshCI() {
+        const button = document.getElementById('ci-button');
+        const label = document.getElementById('ci-label');
+
+        // Prevent multiple clicks
+        if (button.classList.contains('loading')) return;
+
+        button.classList.add('loading');
+        label.textContent = '...';
+
+        try {
+            const response = await fetch(CONFIG.apiUrl + '?refresh_ci=true', {
+                method: 'GET',
+            });
+
+            if (response.ok) {
+                // Fetch fresh data after CI refresh
+                await fetchData();
+                label.textContent = '✓';
+                setTimeout(() => {
+                    label.textContent = 'CI';
+                }, 1500);
+            } else {
+                throw new Error('Failed to refresh CI');
+            }
+        } catch (error) {
+            console.error('CI refresh failed:', error);
+            label.textContent = '✗';
+            setTimeout(() => {
+                label.textContent = 'CI';
+            }, 1500);
+        } finally {
+            button.classList.remove('loading');
+        }
+    }
+
+    function toggleColorblind() {
+        state.colorblind = !state.colorblind;
+        document.body.classList.toggle('colorblind-mode', state.colorblind);
+
+        const button = document.getElementById('colorblind-button');
+        const label = document.getElementById('colorblind-label');
+
+        if (state.colorblind) {
+            button.classList.add('active');
+            label.textContent = 'On';
+        } else {
+            button.classList.remove('active');
+            label.textContent = 'A11y';
+        }
+
+        // Rebuild scene to update ball colors and add/remove emoji indicators
+        clearScene();
+        buildScene();
+
+        // Save preference
+        localStorage.setItem('conductor-tracker-colorblind', state.colorblind ? 'true' : 'false');
+    }
+
+    function loadSavedColorblind() {
+        const saved = localStorage.getItem('conductor-tracker-colorblind');
+        if (saved === 'true') {
+            state.colorblind = true;
+            document.body.classList.add('colorblind-mode');
+            const button = document.getElementById('colorblind-button');
+            const label = document.getElementById('colorblind-label');
+            button.classList.add('active');
+            label.textContent = 'On';
+        }
+    }
+
+    // Get emoji for freshness status score (0-1, where 0 is fresh, 1 is stale)
+    function getFreshnessEmoji(statusScore) {
+        if (statusScore < 0.25) return '✨';  // Fresh
+        if (statusScore < 0.5) return '⚡';   // Recent
+        if (statusScore < 0.75) return '⏰';  // Aging
+        return '💤';                          // Stale
+    }
+
+    // Get grayscale color for colorblind mode
+    function getColorblindGray(statusScore) {
+        // Lighter gray for fresh, darker for stale
+        const brightness = Math.floor(200 - statusScore * 100);  // 200 (fresh) to 100 (stale)
+        return (brightness << 16) | (brightness << 8) | brightness;
     }
 
     function fitToScreen() {
@@ -1399,6 +1714,9 @@
         } else if (event.key === 'l' || event.key === 'L') {
             // Toggle lock with 'l' key
             toggleLock();
+        } else if (event.key === 'c' || event.key === 'C') {
+            // Toggle colorblind mode with 'c' key
+            toggleColorblind();
         } else if (event.key === '0' && state.hideMenuOpen) {
             state.hiddenWorkspaces.clear();
             state.hiddenRepos.clear();
@@ -1499,15 +1817,15 @@
 
             // Calculate summary color from child worktree statuses
             const childScores = collectStatusScores(tree.children);
-            let repoColor, repoEmissiveIntensity;
+            let repoColor, repoEmissiveIntensity, avgScore = 0.5;
             if (childScores.length === 0) {
-                // No children, use default indigo
-                repoColor = 0x6366f1;
+                // No children, use default indigo (or gray in colorblind mode)
+                repoColor = state.colorblind ? 0x888888 : 0x6366f1;
                 repoEmissiveIntensity = 0.2;
             } else {
                 // Average of all child scores
-                const avgScore = childScores.reduce((a, b) => a + b, 0) / childScores.length;
-                repoColor = statusScoreToColor(avgScore);
+                avgScore = childScores.reduce((a, b) => a + b, 0) / childScores.length;
+                repoColor = state.colorblind ? getColorblindGray(avgScore) : statusScoreToColor(avgScore);
                 repoEmissiveIntensity = Math.max(0.1, 0.3 - avgScore * 0.2);
             }
 
@@ -1516,7 +1834,7 @@
             const repoMaterial = new THREE.MeshStandardMaterial({
                 color: repoColor,
                 emissive: repoColor,
-                emissiveIntensity: 0.5,  // Higher emissive for vibrant color
+                emissiveIntensity: state.colorblind ? 0.3 : 0.5,  // Less emissive for grayscale
                 metalness: 0.1,
                 roughness: 0.8,
             });
@@ -1529,6 +1847,16 @@
                 github_url: tree.github_url
             };
             repoGroup.add(repoBall);
+
+            // In colorblind mode, add emoji indicator for repo freshness
+            if (state.colorblind && childScores.length > 0) {
+                const freshnessEmoji = getFreshnessEmoji(avgScore);
+                const emojiSprite = createEmojiSprite(freshnessEmoji);
+                emojiSprite.position.set(repoX - 0.6, 0.6, repoZ);  // Top-left of repo ball
+                emojiSprite.scale.set(0.5, 0.5, 1);
+                emojiSprite.userData.isEmojiIndicator = true;
+                repoGroup.add(emojiSprite);
+            }
 
             // Create repo label (floating text sprite)
             const repoLabel = createTextSprite(repoName, {
@@ -1766,13 +2094,41 @@
         return sprite;
     }
 
+    // Create emoji sprite for colorblind mode freshness indicators
+    function createEmojiSprite(emoji) {
+        const canvas = document.createElement('canvas');
+        canvas.width = 64;
+        canvas.height = 64;
+        const ctx = canvas.getContext('2d');
+
+        // Draw emoji
+        ctx.font = '48px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(emoji, 32, 32);
+
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.needsUpdate = true;
+
+        const material = new THREE.SpriteMaterial({
+            map: texture,
+            transparent: true,
+            depthTest: false,
+            depthWrite: false
+        });
+
+        const sprite = new THREE.Sprite(material);
+        return sprite;
+    }
+
     function createWorkspaceNode(node, githubUrl) {
         const click = node.click_record;
         const status = node.session_status;
 
         // Calculate status score and color (green to red based on freshness)
         const statusScore = getNodeStatusScore(node);
-        const color = statusScoreToColor(statusScore);
+        // In colorblind mode, use grayscale; otherwise use color gradient
+        const color = state.colorblind ? getColorblindGray(statusScore) : statusScoreToColor(statusScore);
         const emissiveIntensity = Math.max(0, 0.3 - statusScore * 0.3);
 
         // Store minutesAgo for time bar
@@ -1781,12 +2137,12 @@
             minutesAgo = (Date.now() - new Date(click.last_seen).getTime()) / 60000;
         }
 
-        // Create main sphere with vibrant color
+        // Create main sphere with vibrant color (or grayscale in colorblind mode)
         const geometry = new THREE.SphereGeometry(0.3, 32, 32);
         const material = new THREE.MeshStandardMaterial({
             color: color,
             emissive: color,
-            emissiveIntensity: 0.5,  // Higher emissive for more vibrant color
+            emissiveIntensity: state.colorblind ? 0.3 : 0.5,  // Less emissive for grayscale
             metalness: 0.1,
             roughness: 0.8,
         });
@@ -1819,6 +2175,17 @@
             mesh.add(awaitingIcon);
         }
 
+        // In colorblind mode, add emoji indicator for freshness
+        if (state.colorblind) {
+            const freshnessEmoji = getFreshnessEmoji(statusScore);
+            const emojiSprite = createEmojiSprite(freshnessEmoji);
+            emojiSprite.position.set(-0.4, 0.4, 0);  // Top-left of ball
+            emojiSprite.scale.set(0.35, 0.35, 1);
+            emojiSprite.userData.isEmojiIndicator = true;
+            emojiSprite.userData.orbitRadius = 0.5;
+            mesh.add(emojiSprite);
+        }
+
         // CI status will be shown in the PR label above the ball
 
         // Calculate time text for display in PR label area
@@ -1838,7 +2205,7 @@
         mesh.userData.timeText = timeText;
         mesh.userData.timeColor = statusScore < 0.5 ? '#88ff88' : (statusScore < 0.75 ? '#ffcc44' : '#ff6666');
 
-        // Add name label - show full PR title, positioned well below the ball with multiline support
+        // Add name label - show full PR title, positioned to orbit around ball
         const displayName = node.pr_title || node.name;
         const label = createTextSprite(displayName, {
             fontsize: 22,
@@ -1850,16 +2217,20 @@
         // Calculate height based on number of lines
         const numLines = label.userData.numLines || 1;
         const labelHeight = 0.5 + (numLines - 1) * 0.25;
-        label.position.set(0, -1.5 - labelHeight / 2, 0);  // Position further below ball
+        label.position.set(0, -0.2, 0);  // Initial position, will be updated by orbit
         const labelWidth = (label.userData.canvasWidth || 256) / 90;
         label.scale.set(labelWidth, labelHeight, 1);
+        // Mark as orbiting label with distance from center
+        label.userData.isOrbitLabel = true;
+        label.userData.orbitRadius = 1.2 + labelHeight / 2;  // Distance from ball center
+        label.userData.orbitType = 'name';  // Name label orbits opposite to camera
         mesh.add(label);
 
         // Add status label above the ball - combines PR number, CI status, and time
         if (node.pr_number) {
             // Determine CI indicator symbol and color
             let ciSymbol = '';
-            let bgColor = 'rgba(80, 80, 220, 0.9)';  // Default blue
+            let bgColor = 'rgba(100, 100, 140, 0.9)';  // Default gray for unknown
             if (node.ci_status === 'pass') {
                 ciSymbol = ' ✓';
                 bgColor = 'rgba(34, 197, 94, 0.9)';  // Green
@@ -1869,6 +2240,9 @@
             } else if (node.ci_status === 'pending') {
                 ciSymbol = ' ⋯';
                 bgColor = 'rgba(234, 179, 8, 0.9)';  // Yellow
+            } else {
+                // Unknown/not fetched yet - show loading indicator
+                ciSymbol = ' ◌';
             }
 
             // Combine PR number, CI status, and time into one label
@@ -1879,11 +2253,15 @@
                 padding: 14,
                 minCanvasWidth: 80
             });
-            statusLabel.position.set(0, 0.65, 0);
+            statusLabel.position.set(0, 0.2, 0);  // Initial position, will be updated by orbit
             statusLabel.scale.set(1.0, 0.4, 1);
+            // Mark as orbiting label
+            statusLabel.userData.isOrbitLabel = true;
+            statusLabel.userData.orbitRadius = 0.8;  // Closer to ball than name label
+            statusLabel.userData.orbitType = 'status';  // Status label on same side as name
             mesh.add(statusLabel);
         } else {
-            // No PR - just show time indicator above the ball
+            // No PR - just show time indicator, orbiting around ball
             const timeLabel = createTextSprite(timeText, {
                 fontsize: 14,
                 backgroundColor: 'rgba(0,0,0,0.7)',
@@ -1891,8 +2269,12 @@
                 padding: 10,
                 minCanvasWidth: 48
             });
-            timeLabel.position.set(0, 0.65, 0);
+            timeLabel.position.set(0, 0.2, 0);  // Initial position, will be updated by orbit
             timeLabel.scale.set(0.5, 0.35, 1);
+            // Mark as orbiting label
+            timeLabel.userData.isOrbitLabel = true;
+            timeLabel.userData.orbitRadius = 0.8;
+            timeLabel.userData.orbitType = 'status';
             mesh.add(timeLabel);
         }
 
@@ -2003,11 +2385,13 @@
         }
 
         // Calculate zoom scale factor - labels get bigger as camera zooms out
-        // In fit mode, keep labels at constant size regardless of zoom
+        // In fit mode, compensate for camera height to keep labels constant size
         let zoomScale;
         if (state.autoFit) {
-            // Fixed scale in fit mode - labels stay same size
-            zoomScale = 1.0;
+            // Scale based on camera height to maintain constant apparent size
+            // Reference height of 15 = scale 1.0, higher = larger labels to compensate
+            const referenceHeight = 15;
+            zoomScale = Math.max(0.5, Math.min(4, cameraHeight / referenceHeight));
         } else {
             // At cameraRadius 15 (default), scale = 1. At 30, scale = 1.5. At 5, scale = 0.7
             zoomScale = Math.max(0.5, Math.min(2, cameraRadius / 15));
@@ -2037,6 +2421,58 @@
 
         // Scale labels in repo groups
         state.repoGroups.forEach(group => updateLabelScales(group));
+
+        // Update orbiting labels to position them away from camera view
+        // Calculate how much the camera is looking from above (0 = side, 1 = directly above)
+        const cameraElevation = Math.min(1, Math.max(0, (cameraHeight - 2) / 15));
+
+        state.nodes.forEach((mesh) => {
+            // Get mesh world position
+            const meshWorldPos = new THREE.Vector3();
+            mesh.getWorldPosition(meshWorldPos);
+
+            // Calculate angle from mesh to camera in XZ plane
+            const dx = camera.position.x - meshWorldPos.x;
+            const dz = camera.position.z - meshWorldPos.z;
+            const angleToCamera = Math.atan2(dx, dz);
+
+            mesh.children.forEach((child) => {
+                if (child.userData.isOrbitLabel) {
+                    const baseRadius = child.userData.orbitRadius;
+
+                    // When looking from above, position labels to the SIDE (perpendicular to camera)
+                    // When looking from side, position above/below
+                    let labelAngle;
+                    if (child.userData.orbitType === 'name') {
+                        // Name label: perpendicular to camera (90 degrees to the right)
+                        labelAngle = angleToCamera + Math.PI / 2;
+                    } else {
+                        // Status label: perpendicular to camera (90 degrees to the left)
+                        labelAngle = angleToCamera - Math.PI / 2;
+                    }
+
+                    // Spread distance - modest increase when looking from above
+                    const spreadMultiplier = 1.0 + cameraElevation * 0.5;  // 1x to 1.5x spread
+                    const radius = Math.min(baseRadius * spreadMultiplier, 2.0);  // Cap max radius
+
+                    // Horizontal position (in XZ plane) - only spread horizontally when from above
+                    const x = Math.sin(labelAngle) * radius * cameraElevation;
+                    const z = Math.cos(labelAngle) * radius * cameraElevation;
+
+                    // Vertical position: flatten when looking from above
+                    // When side view (elevation=0): name below (-0.8), status above (0.5)
+                    // When top view (elevation=1): both near ball level (0)
+                    let y;
+                    if (child.userData.orbitType === 'name') {
+                        y = -0.8 * (1 - cameraElevation);  // Goes from -0.8 to 0
+                    } else {
+                        y = 0.5 * (1 - cameraElevation);   // Goes from 0.5 to 0
+                    }
+
+                    child.position.set(x, y, z);
+                }
+            });
+        });
 
         // Animate working status rings
         state.nodes.forEach((mesh) => {
@@ -2589,6 +3025,7 @@
     // ============================================================================
     function init() {
         loadSavedTheme();
+        loadSavedColorblind();
         initThree();
         fetchData();
 

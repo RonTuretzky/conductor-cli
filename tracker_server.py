@@ -796,6 +796,34 @@ class TrackerState:
             if requests_made >= max_requests:
                 break
 
+    def force_refresh_ci(self):
+        """Force refresh all CI statuses, bypassing rate limit and cache."""
+        global _ci_cache
+        _ci_cache.clear()  # Clear the cache to force fresh fetches
+
+        workspaces = get_workspaces()
+        recent = [ws for ws in workspaces if ws.id in self.clicks]
+
+        # Also refresh the PR list to get latest PRs
+        self.prs_by_repo = get_all_prs(recent)
+
+        repo_to_owner: dict[str, tuple[str, str]] = {}
+        for ws in recent:
+            parsed = parse_github_remote(ws.remote_url)
+            if parsed and ws.repo_name not in repo_to_owner:
+                repo_to_owner[ws.repo_name] = parsed
+
+        # Fetch CI status for all PRs without rate limiting
+        for repo_name, prs in self.prs_by_repo.items():
+            if repo_name not in repo_to_owner:
+                continue
+            owner, repo = repo_to_owner[repo_name]
+            for pr in prs:
+                pr.ci_status = get_pr_ci_status(owner, repo, pr.number)
+
+        # Update last refresh time to prevent immediate re-fetch overwriting our results
+        self.last_pr_refresh = utc_now()
+
     def refresh(self):
         """Refresh data from database."""
         workspaces = get_workspaces()
@@ -889,8 +917,12 @@ class TrackerHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_GET(self):
         parsed = urlparse(self.path)
+        query_params = parse_qs(parsed.query)
 
         if parsed.path == "/api/tracker":
+            # Check if CI refresh is requested
+            if query_params.get("refresh_ci", [""])[0] == "true":
+                self.tracker_state.force_refresh_ci()
             self.send_json(self.tracker_state.get_api_data())
         elif parsed.path == "/" or parsed.path == "/index.html":
             self.serve_html()
