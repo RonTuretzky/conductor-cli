@@ -1876,15 +1876,21 @@
 
     function buildWorkspaceNodes(nodes, group, parentX, parentZ, depth, baseAngle, childIndex, githubUrl) {
         nodes.forEach((node, index) => {
-            if (!node.workspace_id) {
-                // Node without worktree - still recurse for children
+            // Check if this is an orphan PR (has PR but no workspace)
+            const isOrphanPR = !node.workspace_id && node.pr_number;
+
+            if (!node.workspace_id && !isOrphanPR) {
+                // Node without worktree AND without PR - still recurse for children
                 if (node.children && node.children.length > 0) {
                     buildWorkspaceNodes(node.children, group, parentX, parentZ, depth, baseAngle, index, githubUrl);
                 }
                 return;
             }
 
-            if (state.hiddenWorkspaces.has(node.workspace_id)) return;
+            // Use branch as identifier for orphan PRs
+            const nodeId = node.workspace_id || `pr-${node.branch}`;
+
+            if (node.workspace_id && state.hiddenWorkspaces.has(node.workspace_id)) return;
 
             // Calculate position with more spread
             const spreadFactor = 0.6; // Increased spread between sibling nodes
@@ -1896,11 +1902,11 @@
             const z = parentZ + Math.sin(nodeAngle) * distance;
             const y = depth * 0.3; // Slight vertical offset per depth level (going up)
 
-            // Create workspace node
-            const mesh = createWorkspaceNode(node, githubUrl);
+            // Create workspace node (pass isOrphanPR flag for styling)
+            const mesh = createWorkspaceNode(node, githubUrl, isOrphanPR);
             mesh.position.set(x, y, z);
             group.add(mesh);
-            state.nodes.set(node.workspace_id, mesh);
+            state.nodes.set(nodeId, mesh);
 
             // Parent position
             const parentY = depth > 0 ? (depth - 1) * 0.3 : 0;
@@ -2117,12 +2123,12 @@
         return sprite;
     }
 
-    function createWorkspaceNode(node, githubUrl) {
+    function createWorkspaceNode(node, githubUrl, isOrphanPR = false) {
         const click = node.click_record;
         const status = node.session_status;
 
         // Calculate status score and color (green to red based on freshness)
-        const statusScore = getNodeStatusScore(node);
+        const statusScore = isOrphanPR ? 0.5 : getNodeStatusScore(node);  // Orphan PRs get neutral score
         // In colorblind mode, use grayscale; otherwise use color gradient
         const color = state.colorblind ? getColorblindGray(statusScore) : statusScoreToColor(statusScore);
         const emissiveIntensity = Math.max(0, 0.3 - statusScore * 0.3);
@@ -2133,17 +2139,29 @@
             minutesAgo = (Date.now() - new Date(click.last_seen).getTime()) / 60000;
         }
 
-        // Create main sphere with vibrant color (or grayscale in colorblind mode)
-        const geometry = new THREE.SphereGeometry(0.3, 32, 32);
-        const material = new THREE.MeshStandardMaterial({
-            color: color,
-            emissive: color,
-            emissiveIntensity: state.colorblind ? 0.3 : 0.5,  // Less emissive for grayscale
-            metalness: 0.1,
-            roughness: 0.8,
-        });
-
-        const mesh = new THREE.Mesh(geometry, material);
+        let mesh;
+        if (isOrphanPR) {
+            // Orphan PR: Create wireframe sphere to indicate no workspace
+            const geometry = new THREE.SphereGeometry(0.3, 16, 16);
+            const wireframeMaterial = new THREE.MeshBasicMaterial({
+                color: isDarkMode ? 0x6666aa : 0x8888cc,
+                wireframe: true,
+                transparent: true,
+                opacity: 0.7
+            });
+            mesh = new THREE.Mesh(geometry, wireframeMaterial);
+        } else {
+            // Normal workspace: Create solid sphere with vibrant color
+            const geometry = new THREE.SphereGeometry(0.3, 32, 32);
+            const material = new THREE.MeshStandardMaterial({
+                color: color,
+                emissive: color,
+                emissiveIntensity: state.colorblind ? 0.3 : 0.5,
+                metalness: 0.1,
+                roughness: 0.8,
+            });
+            mesh = new THREE.Mesh(geometry, material);
+        }
         // Store github_url in node data for click handling
         node.github_url = githubUrl || node.github_url;
         mesh.userData = {
@@ -2153,26 +2171,29 @@
         };
 
         // Add model indicator for working sessions (no ring, just the label)
-        if (status && status.status === 'working' && status.model) {
-            const modelLabel = createTextSprite(status.model, {
-                fontsize: 10,
-                backgroundColor: 'rgba(34, 197, 94, 0.8)',
-                textColor: '#ffffff',
-                padding: 6
-            });
-            modelLabel.position.set(0.5, 0.2, 0);
-            modelLabel.scale.set(0.5, 0.25, 1);
-            mesh.add(modelLabel);
-        } else if (!status || status.status !== 'working') {
-            // Add awaiting icon for non-working sessions
-            const awaitingIcon = createAwaitingIcon();
-            awaitingIcon.position.set(0, 0, 0.35);  // Positioned in front of the ball
-            awaitingIcon.userData.isAwaitingIcon = true;
-            mesh.add(awaitingIcon);
+        // Skip for orphan PRs as they have no session
+        if (!isOrphanPR) {
+            if (status && status.status === 'working' && status.model) {
+                const modelLabel = createTextSprite(status.model, {
+                    fontsize: 10,
+                    backgroundColor: 'rgba(34, 197, 94, 0.8)',
+                    textColor: '#ffffff',
+                    padding: 6
+                });
+                modelLabel.position.set(0.5, 0.2, 0);
+                modelLabel.scale.set(0.5, 0.25, 1);
+                mesh.add(modelLabel);
+            } else if (!status || status.status !== 'working') {
+                // Add awaiting icon for non-working sessions
+                const awaitingIcon = createAwaitingIcon();
+                awaitingIcon.position.set(0, 0, 0.35);  // Positioned in front of the ball
+                awaitingIcon.userData.isAwaitingIcon = true;
+                mesh.add(awaitingIcon);
+            }
         }
 
-        // In colorblind mode, add emoji indicator for freshness
-        if (state.colorblind) {
+        // In colorblind mode, add emoji indicator for freshness (skip for orphan PRs)
+        if (state.colorblind && !isOrphanPR) {
             const freshnessEmoji = getFreshnessEmoji(statusScore);
             const emojiSprite = createEmojiSprite(freshnessEmoji);
             emojiSprite.position.set(-0.4, 0.4, 0);  // Top-left of ball
@@ -2186,7 +2207,9 @@
 
         // Calculate time text for display in PR label area
         let timeText;
-        if (minutesAgo === 0) {
+        if (isOrphanPR) {
+            timeText = 'n/a';  // No workspace, so no activity time
+        } else if (minutesAgo === 0) {
             timeText = 'never';
         } else if (minutesAgo < 1) {
             timeText = 'now';
@@ -2199,7 +2222,8 @@
         }
         // Store for use in PR label
         mesh.userData.timeText = timeText;
-        mesh.userData.timeColor = statusScore < 0.5 ? '#88ff88' : (statusScore < 0.75 ? '#ffcc44' : '#ff6666');
+        mesh.userData.timeColor = isOrphanPR ? '#aaaaaa' : (statusScore < 0.5 ? '#88ff88' : (statusScore < 0.75 ? '#ffcc44' : '#ff6666'));
+        mesh.userData.isOrphanPR = isOrphanPR;
 
         // Add name label - show full PR title, positioned to orbit around ball
         const displayName = node.pr_title || node.name;
