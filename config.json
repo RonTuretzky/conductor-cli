@@ -4,6 +4,7 @@
   "show_hierarchy": true,
   "tree_layout": false,
   "fetch_prs": true,
+  "fetch_commits": true,
   "since": "today",
   "debug": false,
   "pr_refresh_minutes": 15,
