@@ -106,6 +106,17 @@ BAR_CHARS = " ▏▎▍▌▋▊▉█"
 SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 _spinner_idx = 0
 
+# Battlefront theme icons
+BF_SPINNER = "◢◣◤◥"  # Angular scanner
+BF_SHIP_ICONS = {
+    "right": "▶",      # Ship heading right (Star Destroyer silhouette)
+    "left": "◀",       # Ship heading left
+    "up": "▲",         # Ship heading up
+    "down": "▼",       # Ship heading down
+}
+BF_PLANET_ICON = "◎"   # Target reticle / planet
+BF_STAR_DESTROYER = "<=≡≡>"  # Mini Star Destroyer ASCII
+
 # ANSI color codes
 class Colors:
     RESET = "\033[0m"
@@ -123,6 +134,44 @@ class Colors:
     CYAN = "\033[36m"
     WHITE = "\033[37m"
     MAGENTA = "\033[35m"
+
+
+# Backup of original colors for theme switching
+class _DefaultColors:
+    """Original color scheme backup."""
+    GREEN = "\033[32m"
+    YELLOW = "\033[33m"
+    ORANGE = "\033[38;5;208m"
+    RED = "\033[31m"
+    BLUE = "\033[34m"
+    CYAN = "\033[36m"
+    WHITE = "\033[37m"
+    MAGENTA = "\033[35m"
+
+
+class BattlefrontColors:
+    """Star Wars Battlefront 2 Galactic Conquest holographic theme."""
+    # Holographic cyan palette
+    GREEN = "\033[38;5;45m"    # Bright hologram cyan (controlled)
+    YELLOW = "\033[38;5;74m"   # Steel blue (monitored)
+    ORANGE = "\033[38;5;152m"  # Light steel (alert)
+    RED = "\033[38;5;196m"     # Keep red for critical/enemy
+    BLUE = "\033[38;5;24m"     # Dark slate
+    CYAN = "\033[38;5;51m"     # Bright cyan highlight
+    WHITE = "\033[38;5;189m"   # Holographic white
+    MAGENTA = "\033[38;5;69m"  # Steel blue accent
+
+
+_battlefront_mode = False
+
+
+def apply_theme(battlefront: bool):
+    """Apply theme by updating Colors class attributes."""
+    global _battlefront_mode
+    _battlefront_mode = battlefront
+    source = BattlefrontColors if battlefront else _DefaultColors
+    for attr in ['GREEN', 'YELLOW', 'ORANGE', 'RED', 'BLUE', 'CYAN', 'WHITE', 'MAGENTA']:
+        setattr(Colors, attr, getattr(source, attr))
 
 
 # ============================================================================
@@ -814,10 +863,10 @@ def get_status_icon(status: Optional[SessionStatus]) -> str:
 
     Returns:
         str: Status icon with color codes
-        - Working: animated spinner (green)
+        - Working: animated spinner (green/cyan in Battlefront)
         - Idle: ○ (dim)
-        - Error: ✗ (red)
-        - Compacting: ⟳ (yellow)
+        - Error: ✗ or ⚠ (red)
+        - Compacting: ⟳ (yellow/white in Battlefront)
         - None: empty string
     """
     global _spinner_idx
@@ -825,16 +874,28 @@ def get_status_icon(status: Optional[SessionStatus]) -> str:
     if status is None:
         return ""
 
-    if status.is_compacting:
-        return f"{Colors.YELLOW}⟳{Colors.RESET}"
-
-    if status.status == "working":
-        spinner = SPINNER_FRAMES[_spinner_idx % len(SPINNER_FRAMES)]
-        return f"{Colors.GREEN}{spinner}{Colors.RESET}"
-    elif status.status == "error":
-        return f"{Colors.RED}✗{Colors.RESET}"
-    else:  # idle
-        return f"{Colors.DIM}○{Colors.RESET}"
+    if _battlefront_mode:
+        # Battlefront theme icons
+        if status.is_compacting:
+            return f"{Colors.WHITE}⟳{Colors.RESET}"
+        if status.status == "working":
+            spinner = BF_SPINNER[_spinner_idx % len(BF_SPINNER)]
+            return f"{Colors.CYAN}{spinner}{Colors.RESET}"
+        elif status.status == "error":
+            return f"{Colors.RED}⚠{Colors.RESET}"
+        else:  # idle
+            return f"{Colors.DIM}○{Colors.RESET}"
+    else:
+        # Default theme icons
+        if status.is_compacting:
+            return f"{Colors.YELLOW}⟳{Colors.RESET}"
+        if status.status == "working":
+            spinner = SPINNER_FRAMES[_spinner_idx % len(SPINNER_FRAMES)]
+            return f"{Colors.GREEN}{spinner}{Colors.RESET}"
+        elif status.status == "error":
+            return f"{Colors.RED}✗{Colors.RESET}"
+        else:  # idle
+            return f"{Colors.DIM}○{Colors.RESET}"
 
 
 def advance_spinner(frames: int = 3):
@@ -922,7 +983,10 @@ def format_tracking_line(session: Session, session_mins: int) -> str:
         hidden_parts.append(f"{hidden_repo_count} repos")
     hidden_str = f" ({', '.join(hidden_parts)} hidden)" if hidden_parts else ""
 
-    return f"Tracking: {visible_count} worktrees{hidden_str} | Session: {session_str} | {Colors.DIM}Press ` to hide/show{Colors.RESET}"
+    if _battlefront_mode:
+        return f"FLEET STATUS: {visible_count} active{hidden_str} | MISSION TIME: {session_str} | {Colors.DIM}[`] TACTICAL{Colors.RESET}"
+    else:
+        return f"Tracking: {visible_count} worktrees{hidden_str} | Session: {session_str} | {Colors.DIM}Press ` to hide/show{Colors.RESET}"
 
 
 def render_tree(
@@ -934,8 +998,12 @@ def render_tree(
 ) -> str:
     """Render the tree view."""
     lines = []
-    lines.append(f"{Colors.BOLD}CONDUCTOR WORKTREE TRACKER{Colors.RESET}")
-    lines.append("━" * 60)
+    if _battlefront_mode:
+        lines.append(f"{Colors.CYAN}{Colors.BOLD}{BF_STAR_DESTROYER} GALACTIC CONQUEST ◇ WORKTREE TRACKER {BF_STAR_DESTROYER}{Colors.RESET}")
+        lines.append(f"{Colors.CYAN}{'━' * 60}{Colors.RESET}")
+    else:
+        lines.append(f"{Colors.BOLD}CONDUCTOR WORKTREE TRACKER{Colors.RESET}")
+        lines.append("━" * 60)
 
     if not trees:
         lines.append(f"{Colors.DIM}No worktrees visited yet. Click on workspaces in Conductor.{Colors.RESET}")
@@ -1037,9 +1105,14 @@ def render_radial(
 
     if not trees:
         lines = []
-        lines.append(f"{Colors.BOLD}CONDUCTOR WORKTREE TRACKER{Colors.RESET}")
-        lines.append("━" * available_cols)
-        lines.append(f"{Colors.DIM}No worktrees visited yet. Click on workspaces in Conductor.{Colors.RESET}")
+        if _battlefront_mode:
+            lines.append(f"{Colors.CYAN}{Colors.BOLD}{BF_STAR_DESTROYER} GALACTIC CONQUEST ◇ WORKTREE TRACKER {BF_STAR_DESTROYER}{Colors.RESET}")
+            lines.append(f"{Colors.CYAN}{'━' * available_cols}{Colors.RESET}")
+            lines.append(f"{Colors.DIM}No fleets deployed yet. Select workspaces in Conductor.{Colors.RESET}")
+        else:
+            lines.append(f"{Colors.BOLD}CONDUCTOR WORKTREE TRACKER{Colors.RESET}")
+            lines.append("━" * available_cols)
+            lines.append(f"{Colors.DIM}No worktrees visited yet. Click on workspaces in Conductor.{Colors.RESET}")
         return "\n".join(lines)
 
     repo_list = list(trees.items())
@@ -1104,6 +1177,10 @@ def render_radial(
                 render_node_lines(child, child_prefix, is_last_child, lines_out, depth + 1, direction)
 
         # Render this node
+        # Get ship icon for Battlefront mode
+        ship_icon = BF_SHIP_ICONS.get(direction, "▶") if _battlefront_mode else ""
+        ship_pre = f"{ship_icon} " if ship_icon else ""
+
         if click:
             minutes = int((utc_now() - click.last_seen).total_seconds() / 60)
             time_str = format_time_ago(click.last_seen)
@@ -1115,15 +1192,15 @@ def render_radial(
 
             if direction == "left":
                 # Right-align for left expansion: time bar name connector prefix
-                line = f"{time_str} {color}{bar}{Colors.RESET}{stale_str} {status_pre}{node_name}{pr_str} {connector}{prefix}"
+                line = f"{time_str} {color}{bar}{Colors.RESET}{stale_str} {status_pre}{ship_pre}{node_name}{pr_str} {connector}{prefix}"
             else:
-                line = f"{prefix}{connector} {status_pre}{node_name}{pr_str} {color}{bar}{Colors.RESET} {time_str}{stale_str}"
+                line = f"{prefix}{connector} {ship_pre}{status_pre}{node_name}{pr_str} {color}{bar}{Colors.RESET} {time_str}{stale_str}"
             lines_out.append(line)
         elif node.branch:
             if direction == "left":
-                line = f"{Colors.DIM}{node_name}{pr_str} {connector}{prefix}{Colors.RESET}"
+                line = f"{Colors.DIM}{ship_pre}{node_name}{pr_str} {connector}{prefix}{Colors.RESET}"
             else:
-                line = f"{prefix}{Colors.DIM}{connector} {node_name}{pr_str}{Colors.RESET}"
+                line = f"{prefix}{Colors.DIM}{connector} {ship_pre}{node_name}{pr_str}{Colors.RESET}"
             lines_out.append(line)
 
         # For downward/left trees, render children AFTER (they appear below parent)
@@ -1205,18 +1282,19 @@ def render_radial(
         # Pre-render this repo with directional branching
         repo_lines = []
         repo_display = repo_name[:20] if len(repo_name) > 20 else repo_name
+        repo_icon = BF_PLANET_ICON if _battlefront_mode else "●"
 
         if direction == "up":
             # For upward trees, repo name comes LAST (at bottom, closest to center)
             render_node_lines(root, "", True, repo_lines, direction=direction)
-            repo_lines.append(f"● {Colors.BOLD}{repo_display}{Colors.RESET}")
+            repo_lines.append(f"{repo_icon} {Colors.BOLD}{repo_display}{Colors.RESET}")
         elif direction == "left":
             # For left trees, repo name on RIGHT (closest to center), tree extends left
-            repo_lines.append(f"{Colors.BOLD}{repo_display}{Colors.RESET} ●")
+            repo_lines.append(f"{Colors.BOLD}{repo_display}{Colors.RESET} {repo_icon}")
             render_node_lines(root, "", True, repo_lines, direction=direction)
         else:
             # For down/right trees, repo name comes FIRST (closest to center)
-            repo_lines.append(f"● {Colors.BOLD}{repo_display}{Colors.RESET}")
+            repo_lines.append(f"{repo_icon} {Colors.BOLD}{repo_display}{Colors.RESET}")
             render_node_lines(root, "", True, repo_lines, direction=direction)
 
         # Truncate if needed
@@ -1278,8 +1356,12 @@ def render_radial(
 
     # Convert buffer to output lines
     output_lines = []
-    output_lines.append(f"{Colors.BOLD}CONDUCTOR WORKTREE TRACKER{Colors.RESET}")
-    output_lines.append("━" * available_cols)
+    if _battlefront_mode:
+        output_lines.append(f"{Colors.CYAN}{Colors.BOLD}{BF_STAR_DESTROYER} GALACTIC CONQUEST ◇ WORKTREE TRACKER {BF_STAR_DESTROYER}{Colors.RESET}")
+        output_lines.append(f"{Colors.CYAN}{'━' * available_cols}{Colors.RESET}")
+    else:
+        output_lines.append(f"{Colors.BOLD}CONDUCTOR WORKTREE TRACKER{Colors.RESET}")
+        output_lines.append("━" * available_cols)
 
     for row in buffer:
         line_parts = []
@@ -1579,6 +1661,7 @@ class TerminalInput:
 class HideMenuState:
     """State for the workspace hide/show menu."""
     active: bool = False
+    battlefront_theme: bool = False
 
 
 # Keys a-z for menu selection (26 items max)
@@ -1660,8 +1743,12 @@ def render_hide_menu(
     """
     lines = []
     lines.append("")
-    lines.append(f"{Colors.BOLD}━━━ HIDE/SHOW WORKSPACES & REPOS ━━━{Colors.RESET}")
-    lines.append(f"{Colors.DIM}a-z: toggle workspace, A-Z: toggle repo, `: close, 0: show all{Colors.RESET}")
+    if _battlefront_mode:
+        lines.append(f"{Colors.CYAN}{Colors.BOLD}◇ TACTICAL COMMAND ◇{Colors.RESET}")
+        lines.append(f"{Colors.DIM}a-z: unit, A-Z: sector, `: close, 0: all{Colors.RESET}")
+    else:
+        lines.append(f"{Colors.BOLD}━━━ HIDE/SHOW WORKSPACES & REPOS ━━━{Colors.RESET}")
+        lines.append(f"{Colors.DIM}a-z: toggle workspace, A-Z: toggle repo, `: close, 0: show all{Colors.RESET}")
     lines.append("")
 
     workspace_items, repo_items = build_hide_menu(session, prs_by_repo)
@@ -1709,6 +1796,20 @@ def render_hide_menu(
         if hidden_repo_count > 0:
             parts.append(f"{hidden_repo_count} repo(s)")
         lines.append(f"  {Colors.YELLOW}{', '.join(parts)} hidden{Colors.RESET}")
+
+    # Theme toggle as menu item
+    lines.append("")
+    lines.append(f"{Colors.BOLD}Settings:{Colors.RESET}")
+    key_hint = f"{Colors.YELLOW}/{Colors.RESET}"
+    if _battlefront_mode:
+        theme_status = f"{Colors.CYAN}[BATTLEFRONT]{Colors.RESET}"
+        theme_name = "Galactic Conquest Theme"
+    else:
+        theme_status = f"{Colors.DIM}[default]{Colors.RESET}"
+        theme_name = "Default Theme"
+    lines.append(f"  {key_hint}  {theme_name:<35} {theme_status}")
+
+    lines.append("")
     lines.append("━" * min(60, available_cols))
 
     return "\n".join(lines)
@@ -1738,6 +1839,12 @@ def handle_hide_menu_input(
         # Show all - clear both hidden sets
         session.hidden_workspaces.clear()
         session.hidden_repos.clear()
+        return True
+
+    if key == '/':
+        # Toggle Battlefront theme
+        menu_state.battlefront_theme = not menu_state.battlefront_theme
+        apply_theme(menu_state.battlefront_theme)
         return True
 
     workspace_items, repo_items = build_hide_menu(session, prs_by_repo)
