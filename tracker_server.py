@@ -162,7 +162,7 @@ def get_workspaces() -> list[Workspace]:
             w.id,
             w.directory_name,
             w.branch,
-            w.parent_branch,
+            w.initialization_parent_branch as parent_branch,
             w.repository_id,
             w.updated_at,
             r.name as repo_name,
