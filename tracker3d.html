@@ -1959,24 +1959,43 @@
             const cy = y1 + (y2 - y1) * t;
             const cz = z1 + (z2 - z1) * t;
 
-            // Create commit sphere
-            const commitGeometry = new THREE.SphereGeometry(0.08, 16, 16);
-            const commitColor = getThemeColors().commitColor;
-            const commitMaterial = new THREE.MeshBasicMaterial({
-                color: commitColor,
-            });
-            const commitMesh = new THREE.Mesh(commitGeometry, commitMaterial);
-            commitMesh.position.set(cx, cy, cz);
-            commitMesh.userData = {
-                type: 'commit',
-                commit: commit,
-                github_url: commit.github_url
-            };
-            commitGroup.add(commitMesh);
+            // Check if commit has author avatar
+            const avatarUrl = commit.author_avatar_url;
 
-            // Store in state for raycasting
-            if (!state.commitNodes) state.commitNodes = [];
-            state.commitNodes.push(commitMesh);
+            if (avatarUrl) {
+                // Create avatar sprite for commits with author avatars
+                const avatarSprite = createAvatarSprite(avatarUrl, 0.18);
+                avatarSprite.position.set(cx, cy, cz);
+                avatarSprite.userData = {
+                    type: 'commit',
+                    commit: commit,
+                    github_url: commit.github_url
+                };
+                commitGroup.add(avatarSprite);
+
+                // Store in state for raycasting
+                if (!state.commitNodes) state.commitNodes = [];
+                state.commitNodes.push(avatarSprite);
+            } else {
+                // Fallback to commit sphere for commits without avatars
+                const commitGeometry = new THREE.SphereGeometry(0.08, 16, 16);
+                const commitColor = getThemeColors().commitColor;
+                const commitMaterial = new THREE.MeshBasicMaterial({
+                    color: commitColor,
+                });
+                const commitMesh = new THREE.Mesh(commitGeometry, commitMaterial);
+                commitMesh.position.set(cx, cy, cz);
+                commitMesh.userData = {
+                    type: 'commit',
+                    commit: commit,
+                    github_url: commit.github_url
+                };
+                commitGroup.add(commitMesh);
+
+                // Store in state for raycasting
+                if (!state.commitNodes) state.commitNodes = [];
+                state.commitNodes.push(commitMesh);
+            }
         }
 
         // Add commit count label if there are more commits than displayed
@@ -2372,6 +2391,95 @@
     }
 
     // ============================================================================
+    // Avatar Sprites for Commits
+    // ============================================================================
+    const avatarTextureCache = new Map();
+    const textureLoader = new THREE.TextureLoader();
+    textureLoader.crossOrigin = 'anonymous';
+
+    function createAvatarSprite(avatarUrl, size = 0.18) {
+        // Create a placeholder circular sprite first
+        const canvas = document.createElement('canvas');
+        const canvasSize = 64;
+        canvas.width = canvasSize;
+        canvas.height = canvasSize;
+        const ctx = canvas.getContext('2d');
+
+        // Draw circular background
+        ctx.beginPath();
+        ctx.arc(canvasSize/2, canvasSize/2, canvasSize/2 - 2, 0, Math.PI * 2);
+        ctx.fillStyle = '#4488ff';
+        ctx.fill();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        const placeholderTexture = new THREE.CanvasTexture(canvas);
+        const material = new THREE.SpriteMaterial({
+            map: placeholderTexture,
+            transparent: true,
+            depthTest: false,
+            depthWrite: false
+        });
+
+        const sprite = new THREE.Sprite(material);
+        sprite.scale.set(size, size, 1);
+        sprite.userData.isAvatar = true;
+
+        // Load the actual avatar image
+        if (avatarUrl && !avatarTextureCache.has(avatarUrl)) {
+            avatarTextureCache.set(avatarUrl, 'loading');
+
+            // Load image with size parameter for smaller download
+            const sizedUrl = avatarUrl.includes('?') ? `${avatarUrl}&s=64` : `${avatarUrl}?s=64`;
+
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = function() {
+                // Create circular avatar from loaded image
+                const avatarCanvas = document.createElement('canvas');
+                avatarCanvas.width = canvasSize;
+                avatarCanvas.height = canvasSize;
+                const avatarCtx = avatarCanvas.getContext('2d');
+
+                // Draw circular clip path
+                avatarCtx.beginPath();
+                avatarCtx.arc(canvasSize/2, canvasSize/2, canvasSize/2 - 2, 0, Math.PI * 2);
+                avatarCtx.closePath();
+                avatarCtx.clip();
+
+                // Draw the image
+                avatarCtx.drawImage(img, 0, 0, canvasSize, canvasSize);
+
+                // Add border
+                avatarCtx.beginPath();
+                avatarCtx.arc(canvasSize/2, canvasSize/2, canvasSize/2 - 2, 0, Math.PI * 2);
+                avatarCtx.strokeStyle = '#ffffff';
+                avatarCtx.lineWidth = 2;
+                avatarCtx.stroke();
+
+                const texture = new THREE.CanvasTexture(avatarCanvas);
+                texture.needsUpdate = true;
+                avatarTextureCache.set(avatarUrl, texture);
+
+                // Update the sprite's material
+                sprite.material.map = texture;
+                sprite.material.needsUpdate = true;
+            };
+            img.onerror = function() {
+                avatarTextureCache.set(avatarUrl, 'error');
+            };
+            img.src = sizedUrl;
+        } else if (avatarUrl && avatarTextureCache.get(avatarUrl) !== 'loading' && avatarTextureCache.get(avatarUrl) !== 'error') {
+            // Use cached texture
+            sprite.material.map = avatarTextureCache.get(avatarUrl);
+            sprite.material.needsUpdate = true;
+        }
+
+        return sprite;
+    }
+
+    // ============================================================================
     // Animation & Rendering
     // ============================================================================
     function animate() {
@@ -2535,16 +2643,22 @@
         if (state.commitNodes && state.commitNodes.length > 0) {
             const commitIntersects = raycaster.intersectObjects(state.commitNodes, false);
             if (commitIntersects.length > 0) {
-                const commitMesh = commitIntersects[0].object;
-                if (commitMesh.userData.type === 'commit') {
-                    if (state.hoveredNode !== commitMesh) {
-                        state.hoveredNode = commitMesh;
-                        showCommitTooltip(commitMesh.userData.commit);
+                const commitNode = commitIntersects[0].object;
+                if (commitNode.userData.type === 'commit') {
+                    if (state.hoveredNode !== commitNode) {
+                        state.hoveredNode = commitNode;
+                        showCommitTooltip(commitNode.userData.commit);
                     }
                     foundHover = true;
-                    // Highlight commit on hover
-                    commitMesh.material.color.setHex(0xffcc00);
-                    commitMesh.scale.set(1.5, 1.5, 1.5);
+                    // Highlight commit on hover - scale up
+                    if (commitNode.userData.isAvatar) {
+                        // Avatar sprite - just scale up
+                        commitNode.scale.set(0.25, 0.25, 1);
+                    } else {
+                        // Regular mesh - change color and scale
+                        commitNode.material.color.setHex(0xffcc00);
+                        commitNode.scale.set(1.5, 1.5, 1.5);
+                    }
                 }
             }
         }
@@ -2554,8 +2668,14 @@
             const commitColor = getThemeColors().commitColor;
             state.commitNodes.forEach(cm => {
                 if (cm !== state.hoveredNode) {
-                    cm.material.color.setHex(commitColor);
-                    cm.scale.set(1, 1, 1);
+                    if (cm.userData.isAvatar) {
+                        // Avatar sprite - reset scale
+                        cm.scale.set(0.18, 0.18, 1);
+                    } else {
+                        // Regular mesh - reset color and scale
+                        cm.material.color.setHex(commitColor);
+                        cm.scale.set(1, 1, 1);
+                    }
                 }
             });
         }
@@ -2911,26 +3031,26 @@
     function generateDemoData() {
         // Demo data for testing without backend
         const demoCommits = [
-            { sha: 'abc1234567890', short_sha: 'abc1234', message: 'Add dark mode toggle component', author: 'developer', date: '2024-12-01', github_url: 'https://github.com/example/conductor-cli/commit/abc1234567890' },
-            { sha: 'def2345678901', short_sha: 'def2345', message: 'Implement theme context provider', author: 'developer', date: '2024-12-01', github_url: 'https://github.com/example/conductor-cli/commit/def2345678901' },
-            { sha: 'ghi3456789012', short_sha: 'ghi3456', message: 'Add CSS variables for dark theme', author: 'developer', date: '2024-11-30', github_url: 'https://github.com/example/conductor-cli/commit/ghi3456789012' },
+            { sha: 'abc1234567890', short_sha: 'abc1234', message: 'Add dark mode toggle component', author: 'octocat', date: '2024-12-01', github_url: 'https://github.com/example/conductor-cli/commit/abc1234567890', author_avatar_url: 'https://github.com/octocat.png' },
+            { sha: 'def2345678901', short_sha: 'def2345', message: 'Implement theme context provider', author: 'defunkt', date: '2024-12-01', github_url: 'https://github.com/example/conductor-cli/commit/def2345678901', author_avatar_url: 'https://github.com/defunkt.png' },
+            { sha: 'ghi3456789012', short_sha: 'ghi3456', message: 'Add CSS variables for dark theme', author: 'mojombo', date: '2024-11-30', github_url: 'https://github.com/example/conductor-cli/commit/ghi3456789012', author_avatar_url: 'https://github.com/mojombo.png' },
         ];
 
         const demoCommits2 = [
-            { sha: 'jkl4567890123', short_sha: 'jkl4567', message: 'Fix memory leak in event listener', author: 'developer', date: '2024-12-02', github_url: 'https://github.com/example/conductor-cli/commit/jkl4567890123' },
-            { sha: 'mno5678901234', short_sha: 'mno5678', message: 'Add cleanup on unmount', author: 'developer', date: '2024-12-02', github_url: 'https://github.com/example/conductor-cli/commit/mno5678901234' },
+            { sha: 'jkl4567890123', short_sha: 'jkl4567', message: 'Fix memory leak in event listener', author: 'pjhyett', date: '2024-12-02', github_url: 'https://github.com/example/conductor-cli/commit/jkl4567890123', author_avatar_url: 'https://github.com/pjhyett.png' },
+            { sha: 'mno5678901234', short_sha: 'mno5678', message: 'Add cleanup on unmount', author: 'wycats', date: '2024-12-02', github_url: 'https://github.com/example/conductor-cli/commit/mno5678901234', author_avatar_url: 'https://github.com/wycats.png' },
         ];
 
         const authCommits = [
-            { sha: 'pqr6789012345', short_sha: 'pqr6789', message: 'Add user authentication routes', author: 'developer', date: '2024-11-28', github_url: 'https://github.com/example/my-app/commit/pqr6789012345' },
-            { sha: 'stu7890123456', short_sha: 'stu7890', message: 'Implement JWT token validation', author: 'developer', date: '2024-11-28', github_url: 'https://github.com/example/my-app/commit/stu7890123456' },
-            { sha: 'vwx8901234567', short_sha: 'vwx8901', message: 'Add password hashing', author: 'developer', date: '2024-11-27', github_url: 'https://github.com/example/my-app/commit/vwx8901234567' },
-            { sha: 'yza9012345678', short_sha: 'yza9012', message: 'Create user model', author: 'developer', date: '2024-11-27', github_url: 'https://github.com/example/my-app/commit/yza9012345678' },
+            { sha: 'pqr6789012345', short_sha: 'pqr6789', message: 'Add user authentication routes', author: 'ezmobius', date: '2024-11-28', github_url: 'https://github.com/example/my-app/commit/pqr6789012345', author_avatar_url: 'https://github.com/ezmobius.png' },
+            { sha: 'stu7890123456', short_sha: 'stu7890', message: 'Implement JWT token validation', author: 'ivey', date: '2024-11-28', github_url: 'https://github.com/example/my-app/commit/stu7890123456', author_avatar_url: 'https://github.com/ivey.png' },
+            { sha: 'vwx8901234567', short_sha: 'vwx8901', message: 'Add password hashing', author: 'evanphx', date: '2024-11-27', github_url: 'https://github.com/example/my-app/commit/vwx8901234567', author_avatar_url: 'https://github.com/evanphx.png' },
+            { sha: 'yza9012345678', short_sha: 'yza9012', message: 'Create user model', author: 'octocat', date: '2024-11-27', github_url: 'https://github.com/example/my-app/commit/yza9012345678', author_avatar_url: 'https://github.com/octocat.png' },
         ];
 
         const oauthCommits = [
-            { sha: 'bcd0123456789', short_sha: 'bcd0123', message: 'Add OAuth provider config', author: 'developer', date: '2024-11-29', github_url: 'https://github.com/example/my-app/commit/bcd0123456789' },
-            { sha: 'efg1234567890', short_sha: 'efg1234', message: 'Implement Google OAuth flow', author: 'developer', date: '2024-11-29', github_url: 'https://github.com/example/my-app/commit/efg1234567890' },
+            { sha: 'bcd0123456789', short_sha: 'bcd0123', message: 'Add OAuth provider config', author: 'mojombo', date: '2024-11-29', github_url: 'https://github.com/example/my-app/commit/bcd0123456789', author_avatar_url: 'https://github.com/mojombo.png' },
+            { sha: 'efg1234567890', short_sha: 'efg1234', message: 'Implement Google OAuth flow', author: 'defunkt', date: '2024-11-29', github_url: 'https://github.com/example/my-app/commit/efg1234567890', author_avatar_url: 'https://github.com/defunkt.png' },
         ];
 
         return {
@@ -2945,6 +3065,8 @@
                             branch: 'feature/dark-mode',
                             workspace_id: 'ws-1',
                             pr_number: 42,
+                            pr_author_login: 'octocat',
+                            pr_author_avatar_url: 'https://github.com/octocat.png',
                             ci_status: 'pass',
                             parent_branch_name: 'main',
                             commits_from_parent: demoCommits,
@@ -2960,6 +3082,8 @@
                             branch: 'fix/memory-leak',
                             workspace_id: 'ws-2',
                             pr_number: 38,
+                            pr_author_login: 'defunkt',
+                            pr_author_avatar_url: 'https://github.com/defunkt.png',
                             ci_status: 'pending',
                             parent_branch_name: 'main',
                             commits_from_parent: demoCommits2,
@@ -2982,6 +3106,8 @@
                             branch: 'feature/auth',
                             workspace_id: 'ws-3',
                             pr_number: 15,
+                            pr_author_login: 'mojombo',
+                            pr_author_avatar_url: 'https://github.com/mojombo.png',
                             ci_status: 'fail',
                             parent_branch_name: 'main',
                             commits_from_parent: authCommits,
@@ -2996,6 +3122,8 @@
                                     branch: 'feature/oauth',
                                     workspace_id: 'ws-4',
                                     pr_number: 16,
+                                    pr_author_login: 'pjhyett',
+                                    pr_author_avatar_url: 'https://github.com/pjhyett.png',
                                     ci_status: 'pending',
                                     parent_branch_name: 'feature/auth',
                                     commits_from_parent: oauthCommits,
